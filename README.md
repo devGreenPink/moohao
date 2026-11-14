@@ -30,6 +30,16 @@ Share files and text between nearby devices, right in the browser. No server.
 - **จับคู่ถาวร**: เลือกอุปกรณ์ → "จับคู่ถาวร" → อีกเครื่องเช็กรหัสยืนยันแล้วกด "จับคู่"
   ทั้งสองเครื่องจะเห็นกันอัตโนมัติแม้อยู่คนละเครือข่าย จัดการได้ในหน้าต่าง "ห้อง"
 
+### เชื่อมต่อง่ายขึ้น + แจ้งเตือน / Easier connecting + notifications
+
+- **รหัสห้องเป็น 3 คำ** เช่น "แมว · ส้ม · ดาว" = "cat · orange · star" (คำไทยกับอังกฤษคือห้องเดียวกัน)
+  พิมพ์มีหรือไม่มีเว้นวรรคก็ได้ ผสมภาษาได้ และรหัสแบบเก่า 6 ตัวอักษรยังใช้ได้
+- **สแกน QR ในแอป** (ปุ่ม "สแกน QR" ในหน้าต่างห้อง) ใช้ BarcodeDetector ถ้ามี ไม่งั้นโหลด jsQR
+- **แจ้งเตือนของระบบ** (ปุ่มกระดิ่งบนแถบด้านบน) เมื่อมีคนส่งไฟล์มา (พร้อมปุ่ม รับ/ไม่รับ),
+  รับไฟล์เสร็จ, ส่งเสร็จ/ไม่สำเร็จ/ถูกปฏิเสธ, มีข้อความ, มีคนขอจับคู่ และจับคู่สำเร็จ
+  - เด้งเฉพาะตอนไม่ได้ดูหน้า Nearby อยู่ และทำงานเฉพาะตอนที่ Nearby เปิดค้างไว้ (ไม่มี push server)
+  - สั่นบน Android และแสดงตัวเลขบนไอคอนแอปที่ติดตั้งแล้ว
+
 ### เบื้องหลัง / Under the hood
 
 - Signaling ใช้ [Trystero](https://github.com/dmotz/trystero) ผ่าน Nostr relay สาธารณะ จึง host บน GitHub Pages ได้
@@ -60,6 +70,9 @@ addresses behave like two different devices (handy for testing pairing).
 | `js/net.js` | Networking: network detection, Trystero rooms, offer/accept, chunked transfer, safety code, pair requests |
 | `js/sinks.js` | Where received bytes go: memory, disk (File System Access) or streamed download |
 | `js/pairing.js` | Saved pairings (localStorage) |
+| `js/words.js` | 3-word room codes (Thai / English), parsing incl. Thai typed without spaces |
+| `js/notify.js` | System notifications, vibration, app badge, on/off setting |
+| `js/ui/scanner.js` | In-app QR scanner (BarcodeDetector or jsQR) |
 | `js/i18n.js` | Thai / English strings |
 | `js/ui/radar.js` | Radar with device buttons (placement, selection, progress, keyboard) |
 | `js/ui/panel.js` | Side panel: selected device / pick prompt / searching / help / error |

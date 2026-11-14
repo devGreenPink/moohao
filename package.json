@@ -4,11 +4,12 @@
   "private": true,
   "description": "Share files between devices on the same network, peer-to-peer in the browser.",
   "scripts": {
-    "build:vendor": "esbuild vendor-src/vendor.js --bundle --format=esm --minify --outfile=vendor/vendor.js",
+    "build:vendor": "esbuild vendor-src/vendor.js vendor-src/jsqr.js --bundle --format=esm --minify --outdir=vendor",
     "serve": "node scripts/serve.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",
+    "jsqr": "1.4.0",
     "qrcode-generator": "2.0.4",
     "trystero": "0.26.0"
   }

@@ -3,7 +3,7 @@
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.0.0'
+const VERSION = 'nearby-v2.1.0'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 
@@ -17,6 +17,10 @@ const SHELL = [
   './js/i18n.js',
   './js/sinks.js',
   './js/pairing.js',
+  './js/notify.js',
+  './js/words.js',
+  './js/ui/scanner.js',
+  './vendor/jsqr.js',
   './js/ui/mascot.js',
   './js/ui/radar.js',
   './js/ui/panel.js',
@@ -109,6 +113,24 @@ async function receiveShare(request) {
   await cache.put(scopeUrl('__share/meta'), new Response(JSON.stringify(meta), {headers: {'Content-Type': 'application/json'}}))
   return Response.redirect(scopeUrl('./?shared=1'), 303)
 }
+
+// ---------- notification clicks ----------
+
+self.addEventListener('notificationclick', event => {
+  const {notification, action} = event
+  notification.close()
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({type: 'window', includeUncontrolled: true})
+    const client = windows.find(c => c.url.startsWith(self.registration.scope))
+    if (client) {
+      client.postMessage({type: 'nearby-notification', action: action || 'open', tag: notification.tag, data: notification.data})
+      // "Decline" can be handled without pulling the user back to the app.
+      if (action !== 'decline') await client.focus().catch(() => {})
+    } else if (!action) {
+      await self.clients.openWindow(self.registration.scope)
+    }
+  })())
+})
 
 // ---------- fetch ----------
 

@@ -40,6 +40,7 @@
         <span class="dot" id="mode-dot" aria-hidden="true"></span>
         <span id="mode-label"></span>
       </button>
+      <button id="btn-notify" class="icon-btn notify" type="button" hidden></button>
       <button id="btn-lang" class="icon-btn text" type="button" data-i18n="language"></button>
       <button id="btn-theme" class="icon-btn" type="button" data-i18n-title="theme"></button>
     </div>
@@ -184,6 +185,8 @@
       <div id="room-active" hidden>
         <p class="muted" data-i18n="yourRoom"></p>
         <div class="code" id="room-code"></div>
+        <p class="muted small code-alt" id="room-code-alt"></p>
+        <p class="small code-say" data-i18n="codeSay"></p>
         <div class="qr" id="room-qr"></div>
         <p class="muted small" data-i18n="scanHint"></p>
         <div class="row">
@@ -195,9 +198,14 @@
         <p class="muted" data-i18n="roomHelp"></p>
         <button type="button" class="btn primary wide" id="room-create" data-i18n="createRoom"></button>
         <div class="join">
-          <input id="room-input" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" data-i18n-placeholder="codePlaceholder">
+          <input id="room-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60" enterkeyhint="go" data-i18n-placeholder="codePlaceholder">
           <button type="button" class="btn" id="room-join" data-i18n="joinRoom"></button>
         </div>
+        <p class="field-error" id="room-error" role="alert" hidden></p>
+        <button type="button" class="btn wide" id="room-scan" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 12h8"/></svg>
+          <span data-i18n="scanQr"></span>
+        </button>
       </div>
       <div class="pairs">
         <h4 data-i18n="pairsTitle"></h4>
@@ -205,6 +213,19 @@
         <p class="muted small" id="pairs-empty" data-i18n="pairsEmpty"></p>
       </div>
       <div class="row end"><button class="btn ghost" value="close" data-i18n="close"></button></div>
+    </form>
+  </dialog>
+
+  <!-- QR scanner -->
+  <dialog id="dlg-scan">
+    <form method="dialog" class="sheet">
+      <h3 data-i18n="scanTitle"></h3>
+      <div class="scan-view">
+        <video id="scan-video" playsinline muted></video>
+        <span class="scan-frame" aria-hidden="true"></span>
+      </div>
+      <p class="muted small" id="scan-status" role="status"></p>
+      <div class="row end"><button class="btn ghost" value="cancel" data-i18n="cancel"></button></div>
     </form>
   </dialog>
 

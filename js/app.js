@@ -1,5 +1,8 @@
 import {t, lang, setLang, applyStatic} from './i18n.js'
-import {createSession, detectNetworkRoom, codeRoom, pairRoom, newRoomCode, normalizeCode, randomId} from './net.js'
+import {createSession, detectNetworkRoom, codeRoom, pairRoom, randomId} from './net.js'
+import {newWordCode, parseRoomCode, displayCode, codeWords, isWordCode} from './words.js'
+import {notifyState, toggleNotify, notify, closeNotification, onNotificationAction, buzz, bumpBadge, clearBadge} from './notify.js'
+import {scannerSupported, runScanner} from './ui/scanner.js'
 import {memorySink, diskSink, diskSupported, streamSink, streamSupported, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
 import {loadPairs, addPair, removePair, touchPair} from './pairing.js'
 import {qrcode} from '../vendor/vendor.js'
@@ -85,8 +88,24 @@ function flagTitle() {
   if (document.hidden) document.title = `● ${baseTitle}`
 }
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) document.title = baseTitle
+  if (!document.hidden) {
+    document.title = baseTitle
+    clearBadge()
+  }
 })
+window.addEventListener('focus', clearBadge)
+
+/** Something the user should know about even if they're in another app. */
+function alertUser({title, body, tag, actions, vibrate = true}) {
+  if (vibrate) buzz()
+  bumpBadge()
+  notify({title, body, tag, actions})
+}
+
+function fileNames(files) {
+  const names = files.slice(0, 3).map(f => f.name)
+  return names.join(', ') + (files.length > 3 ? ` +${files.length - 3}` : '')
+}
 
 async function copyText(text) {
   try {
@@ -245,7 +264,7 @@ function refresh() {
   else if (count) kind = 'found'
   else kind = Date.now() - state.searchStart < SEARCH_GRACE_MS ? 'searching' : 'none'
 
-  scan.set({kind, count, mode: state.mode, code: state.code, message: error})
+  scan.set({kind, count, mode: state.mode, code: state.code && displayCode(state.code, lang), message: error})
 
   const sel = radar.selected
   if (sel && state.peers.has(sel)) {
@@ -276,7 +295,7 @@ function updateMode() {
   dot.className = 'dot'
   if (state.mode === 'room') {
     dot.classList.add('room')
-    $('#mode-label').textContent = t('modeRoom', {code: state.code})
+    $('#mode-label').textContent = t('modeRoom', {code: displayCode(state.code, lang)})
   } else if (state.mode === 'offline') {
     $('#mode-label').textContent = t('modeOffline')
   } else {
@@ -450,6 +469,10 @@ async function sendFiles(id, files) {
           setProgress(id, 'sending', sent, total, start)
         } else {
           setPeerStatus(id, status)
+          const name = p.info.name
+          if (status === 'done') alertUser({title: t('nSent', {name}), body: fileNames(files), tag: `sent-${id}`})
+          else if (status === 'declined') alertUser({title: t('nDeclined', {name}), body: fileNames(files), tag: `sent-${id}`})
+          else if (status === 'failed') alertUser({title: t('nFailed', {name}), body: fileNames(files), tag: `sent-${id}`})
         }
       },
       tid => {
@@ -590,18 +613,28 @@ function askOffer(peerId, data, signal, session) {
     const abort = () => dlg.open && dlg.close('no')
     signal?.addEventListener('abort', abort, {once: true})
     const timer = setTimeout(abort, 4.5 * 60 * 1000)
+    const tag = `offer-${data.tid}`
     state.offerPeer = peerId
+    state.offerTag = tag
     chime()
     flagTitle()
+    alertUser({
+      title: t('nOffer', {name: peer.info.name}),
+      body: `${t('filesCount', {n: data.files.length, size: fmtSize(total)})}\n${fileNames(data.files)}`,
+      tag,
+      actions: [{action: 'accept', title: t('accept')}, {action: 'decline', title: t('decline')}],
+    })
     const answer = await showDialog(dlg)
     state.offerPeer = null
+    state.offerTag = null
+    closeNotification(tag)
     clearTimeout(timer)
     signal?.removeEventListener('abort', abort)
 
     if (answer !== 'yes' || signal?.aborted || !state.peers.has(peerId)) return resolve(null)
     const sink = await chooseSink(data.files, total)
     if (!sink) return resolve(null)
-    state.incoming.set(data.tid, {start: performance.now(), total, sink, peerId, count: data.files.length})
+    state.incoming.set(data.tid, {start: performance.now(), total, sink, peerId, count: data.files.length, files: data.files})
     const p = state.peers.get(peerId)
     if (p) p.transfer = {tid: data.tid, session}
     setPeerStatus(peerId, 'receiving', {fraction: 0})
@@ -616,6 +649,8 @@ function onIncomingDone(peerId, tid) {
   if (p) p.transfer = null
   setPeerStatus(peerId, 'done', {fraction: 1})
   if (!inc) return
+  const name = p?.info.name || '?'
+  alertUser({title: t('nReceived', {n: inc.count, name}), body: fileNames(inc.files), tag: `recv-${tid}`})
   if (inc.sink.kind === 'memory') showReceived(peerId, inc.sink.results)
   else if (inc.sink.kind === 'disk') toast(t('savedToDisk', {n: inc.count}), 4000)
   else toast(t('downloadSaved'), 4000)
@@ -680,6 +715,7 @@ function showMessage(peerId, text) {
     }
     chime()
     flagTitle()
+    alertUser({title: t('messageFrom', {name}), body: text.slice(0, 140), tag: `msg-${peerId}`})
     await showDialog($('#dlg-message'))
   })
 }
@@ -733,6 +769,7 @@ async function pairWith(id) {
   const record = await addPair({secret, name: res.name || p.info.name, deviceId: res.deviceId || p.info.deviceId})
   await ensurePairSession(record)
   toast(t('pairDone', {name: record.name}))
+  alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`})
   refreshPairFlags()
 }
 
@@ -748,12 +785,20 @@ function askPair(peerId, request, signal, session) {
     signal?.addEventListener('abort', abort, {once: true})
     chime()
     flagTitle()
+    const tag = `pairreq-${peerId}`
+    alertUser({
+      title: t('nPairRequest', {name: request.name || peer.info.name}),
+      body: code ? t('nPairCode', {code}) : '',
+      tag,
+    })
     const answer = await showDialog(dlg)
+    closeNotification(tag)
     signal?.removeEventListener('abort', abort)
     if (answer !== 'yes' || signal?.aborted) return resolve(false)
     const record = await addPair({secret: request.secret, name: request.name || peer.info.name, deviceId: request.deviceId || peer.info.deviceId})
     await ensurePairSession(record)
     toast(t('pairDone', {name: record.name}))
+    alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`, vibrate: false})
     refreshPairFlags()
     resolve(true)
   }))
@@ -835,10 +880,29 @@ function roomUrl(code) {
   return `${location.origin}${location.pathname}#r=${code}`
 }
 
+function codeFromHashString(hash) {
+  const m = /[#&]r=([^&]+)/.exec(hash || '')
+  if (!m) return null
+  try {
+    return parseRoomCode(decodeURIComponent(m[1]))
+  } catch {
+    return null
+  }
+}
+
 function codeFromHash() {
-  const m = /[#&]r=([A-Za-z0-9]+)/.exec(location.hash)
-  const code = m ? normalizeCode(m[1]) : ''
-  return code.length >= 4 ? code : null
+  return codeFromHashString(location.hash)
+}
+
+/** A scanned QR / pasted text -> room code, if it's one of ours. */
+function codeFromText(text) {
+  const s = String(text || '').trim()
+  try {
+    const url = new URL(s)
+    return codeFromHashString(url.hash)
+  } catch {
+    return parseRoomCode(s)
+  }
 }
 
 async function switchSession(config) {
@@ -887,8 +951,21 @@ function renderRoomDialog() {
   const inRoom = state.mode === 'room'
   $('#room-active').hidden = !inRoom
   $('#room-idle').hidden = inRoom
+  $('#room-error').hidden = true
+  $('#room-scan').hidden = !scannerSupported()
   if (inRoom) {
-    $('#room-code').textContent = state.code
+    const codeEl = $('#room-code')
+    const words = isWordCode(state.code)
+    codeEl.classList.toggle('words', words)
+    codeEl.replaceChildren(...codeWords(state.code, lang).map(w => {
+      const span = document.createElement('span')
+      span.textContent = w
+      return span
+    }))
+    codeEl.setAttribute('aria-label', displayCode(state.code, lang))
+    $('#room-code-alt').hidden = !words
+    $('.code-say').hidden = !words
+    if (words) $('#room-code-alt').textContent = t('codeAlt', {code: displayCode(state.code, lang === 'th' ? 'en' : 'th')})
     const qr = qrcode(0, 'M')
     qr.addData(roomUrl(state.code))
     qr.make()
@@ -905,18 +982,37 @@ function openRoomDialog() {
 
 $('#btn-room').addEventListener('click', openRoomDialog)
 $('#room-create').addEventListener('click', async () => {
-  await enterRoom(newRoomCode())
+  await enterRoom(newWordCode())
   renderRoomDialog()
 })
 function joinTyped() {
-  const code = normalizeCode($('#room-input').value)
-  if (code.length < 4) {
+  const code = codeFromText($('#room-input').value)
+  if (!code) {
+    $('#room-error').textContent = t('badCode')
+    $('#room-error').hidden = false
     $('#room-input').focus()
     return
   }
   $('#dlg-room').close()
   enterRoom(code)
 }
+$('#room-input').addEventListener('input', () => { $('#room-error').hidden = true })
+
+$('#room-scan').addEventListener('click', () => {
+  const dialog = $('#dlg-scan')
+  let found = null
+  showDialog(dialog).then(() => {
+    if (!found) return
+    if ($('#dlg-room').open) $('#dlg-room').close()
+    if (found !== state.code) enterRoom(found)
+  })
+  runScanner({
+    dialog,
+    video: $('#scan-video'),
+    setStatus: key => { $('#scan-status').textContent = t(key) },
+    accept: text => (found = codeFromText(text)),
+  })
+})
 $('#room-join').addEventListener('click', joinTyped)
 $('#room-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') {
@@ -1054,6 +1150,38 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(() => {})
 }
 
+// ---------- notifications ----------
+
+function renderNotifyButton() {
+  const btn = $('#btn-notify')
+  const st = notifyState()
+  btn.hidden = st === 'unsupported'
+  btn.dataset.state = st
+  btn.innerHTML = st === 'on' ? ICONS.bell : ICONS.bellOff
+  const label = st === 'on' ? t('notifyOn') : st === 'blocked' ? t('notifyBlocked') : t('notifyOff')
+  btn.title = label
+  btn.setAttribute('aria-label', label)
+  btn.setAttribute('aria-pressed', String(st === 'on'))
+}
+
+$('#btn-notify').addEventListener('click', async () => {
+  if (notifyState() === 'blocked') return toast(t('notifyBlocked'), 4000)
+  const st = await toggleNotify()
+  renderNotifyButton()
+  if (st === 'on') toast(t('notifyEnabled'), 3500)
+  else if (st === 'off') toast(t('notifyDisabled'))
+  else if (st === 'blocked') toast(t('notifyBlocked'), 4000)
+})
+
+// Buttons pressed on a notification (Accept / Decline on an incoming offer).
+onNotificationAction(({action, tag}) => {
+  const dlg = $('#dlg-offer')
+  if (tag && tag === state.offerTag && dlg.open) {
+    if (action === 'accept') dlg.close('yes')
+    else if (action === 'decline') dlg.close('no')
+  }
+})
+
 // ---------- header controls ----------
 
 function isLight() {
@@ -1072,6 +1200,8 @@ $('#btn-theme').addEventListener('click', () => {
 function applyLanguage() {
   applyStatic()
   $('#radar-nodes').setAttribute('aria-label', t('radarLabel'))
+  renderNotifyButton()
+  if ($('#dlg-room').open) renderRoomDialog()
   renderMe()
   updateMode()
   for (const [id, p] of state.peers) {
