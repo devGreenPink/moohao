@@ -1,0 +1,15 @@
+{
+  "name": "nearby",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Share files between devices on the same network, peer-to-peer in the browser.",
+  "scripts": {
+    "build:vendor": "esbuild vendor-src/vendor.js --bundle --format=esm --minify --outfile=vendor/vendor.js",
+    "serve": "node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "qrcode-generator": "2.0.4",
+    "trystero": "0.26.0"
+  }
+}

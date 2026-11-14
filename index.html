@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nearby</title>
+  <meta name="description" content="Share files and text between devices on the same network. Peer-to-peer, nothing is uploaded.">
+  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1117" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Apply the saved theme before first paint to avoid a flash.
+    try { const th = localStorage.getItem('nearby.theme'); if (th) document.documentElement.dataset.theme = th } catch {}
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="30" height="30">
+      <div>
+        <h1>Nearby</h1>
+        <p data-i18n="tagline"></p>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-room" class="chip" type="button">
+        <span class="dot" id="mode-dot"></span>
+        <span id="mode-label"></span>
+      </button>
+      <button id="btn-lang" class="icon-btn text" type="button" data-i18n="language"></button>
+      <button id="btn-theme" class="icon-btn" type="button" data-i18n-title="theme">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <div class="ripples" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+    <section id="peers" class="peers" aria-live="polite"></section>
+
+    <div id="empty" class="empty">
+      <div class="radar" aria-hidden="true"></div>
+      <h2 data-i18n="searching"></h2>
+      <p id="empty-text"></p>
+    </div>
+  </main>
+
+  <footer class="me">
+    <div class="me-card">
+      <span class="avatar small" id="me-avatar" aria-hidden="true"></span>
+      <div>
+        <small data-i18n="youAre"></small>
+        <button id="me-name" class="name-btn" type="button" data-i18n-title="rename"></button>
+      </div>
+    </div>
+    <p class="about" data-i18n="about"></p>
+  </footer>
+
+  <div id="pending-bar" class="pending-bar" hidden>
+    <span id="pending-text"></span>
+    <button id="pending-cancel" type="button" class="btn ghost" data-i18n="cancelPending"></button>
+  </div>
+
+  <div id="drop-overlay" class="drop-overlay" hidden><span data-i18n="dropHere"></span></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <input id="file-input" type="file" multiple hidden>
+
+  <!-- Room / QR -->
+  <dialog id="dlg-room">
+    <form method="dialog" class="sheet">
+      <h3 data-i18n="roomTitle"></h3>
+      <div id="room-active" hidden>
+        <p class="muted" data-i18n="yourRoom"></p>
+        <div class="code" id="room-code"></div>
+        <div class="qr" id="room-qr"></div>
+        <p class="muted small" data-i18n="scanHint"></p>
+        <div class="row">
+          <button type="button" class="btn" id="room-copy" data-i18n="copyLink"></button>
+          <button type="button" class="btn ghost" id="room-leave" data-i18n="leaveRoom"></button>
+        </div>
+      </div>
+      <div id="room-idle">
+        <p class="muted" data-i18n="roomHelp"></p>
+        <button type="button" class="btn primary wide" id="room-create" data-i18n="createRoom"></button>
+        <div class="join">
+          <input id="room-input" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="12" data-i18n-placeholder="codePlaceholder">
+          <button type="button" class="btn" id="room-join" data-i18n="joinRoom"></button>
+        </div>
+      </div>
+      <div class="row end"><button class="btn ghost" value="close" data-i18n="close"></button></div>
+    </form>
+  </dialog>
+
+  <!-- Incoming offer -->
+  <dialog id="dlg-offer">
+    <form method="dialog" class="sheet">
+      <h3 id="offer-title"></h3>
+      <p class="muted" id="offer-summary"></p>
+      <ul class="file-list" id="offer-files"></ul>
+      <div class="row end">
+        <button class="btn ghost" value="no" data-i18n="decline"></button>
+        <button class="btn primary" value="yes" data-i18n="accept"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Received files -->
+  <dialog id="dlg-received">
+    <form method="dialog" class="sheet">
+      <h3 id="received-title"></h3>
+      <ul class="file-list" id="received-files"></ul>
+      <div class="row end">
+        <button class="btn ghost" value="close" data-i18n="close"></button>
+        <button type="button" class="btn primary" id="received-all" data-i18n="saveAll"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Compose text -->
+  <dialog id="dlg-compose">
+    <form method="dialog" class="sheet">
+      <h3 id="compose-title"></h3>
+      <textarea id="compose-text" rows="5" data-i18n-placeholder="textPlaceholder"></textarea>
+      <div class="row end">
+        <button class="btn ghost" value="cancel" data-i18n="cancel"></button>
+        <button class="btn primary" value="send" id="compose-send" data-i18n="send"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Incoming text -->
+  <dialog id="dlg-message">
+    <form method="dialog" class="sheet">
+      <h3 id="message-title"></h3>
+      <div class="message" id="message-body"></div>
+      <div class="row end">
+        <button class="btn ghost" value="close" data-i18n="close"></button>
+        <a class="btn" id="message-open" target="_blank" rel="noopener noreferrer" hidden data-i18n="open"></a>
+        <button type="button" class="btn primary" id="message-copy" data-i18n="copy"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
