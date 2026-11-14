@@ -1,5 +1,6 @@
 // Renders the app icons (PNG) without any image library: `node scripts/make-icons.mjs`
-// Draws a night-sky rounded square with radar arcs and a dot, matching icons/icon.svg.
+// Draws the logo — a smiling planet with two little devices on a dashed orbit — on a
+// night-sky rounded square, matching icons/icon.svg and the header logo.
 import {writeFileSync} from 'node:fs'
 import {deflateSync, crc32} from 'node:zlib'
 import {resolve} from 'node:path'
@@ -9,17 +10,16 @@ const out = resolve(import.meta.dirname, '..', 'icons')
 const hex = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]
 const BG_A = hex('#2e2a72')
 const BG_B = hex('#141634')
-const ARCS = [
-  {r: 11, color: hex('#f3f1ff'), alpha: 1},
-  {r: 19, color: hex('#c2a8ff'), alpha: 0.95},
-  {r: 27, color: hex('#8fe6f2'), alpha: 0.85},
-]
-const DOT = hex('#ffb4c8')
+const OUTLINE = hex('#2b2363')
+const PLANET = hex('#ffc3d6')
+const ORBIT = hex('#b9a2ff')
+const MOON_A = hex('#8fe6f2')
+const MOON_B = hex('#ffeec2')
+const CHEEK = hex('#ff8fb5')
+const WHITE = [255, 255, 255]
 
-// All geometry in a 64x64 design space.
-const C = {x: 32, y: 44}
-const STROKE = 4.4
-const SPAN = (52 * Math.PI) / 180
+// All geometry in a 64x64 design space (same numbers as icons/icon.svg).
+const C = {x: 32, y: 32}
 
 function roundedRectSdf(x, y, inset, radius) {
   const hw = 32 - inset
@@ -28,15 +28,14 @@ function roundedRectSdf(x, y, inset, radius) {
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - radius
 }
 
-function arcSdf(x, y, r) {
-  const dx = x - C.x
-  const dy = y - C.y
-  const angle = Math.atan2(dx, -dy) // 0 = straight up
-  if (Math.abs(angle) <= SPAN) return Math.abs(Math.hypot(dx, dy) - r) - STROKE / 2
-  const s = Math.sign(angle) * SPAN
-  const ex = C.x + Math.sin(s) * r
-  const ey = C.y - Math.cos(s) * r
-  return Math.hypot(x - ex, y - ey) - STROKE / 2
+const mix = (rgb, color, a) => rgb.map((v, k) => v + (color[k] - v) * a)
+
+/** A filled circle with an outline: returns the new colour at (x, y). */
+function disc(rgb, x, y, cx, cy, r, fill, outlineW) {
+  const d = Math.hypot(x - cx, y - cy)
+  if (d < r - outlineW / 2) return fill
+  if (d < r + outlineW / 2) return OUTLINE
+  return rgb
 }
 
 function shade(x, y, maskable) {
@@ -45,13 +44,31 @@ function shade(x, y, maskable) {
   if (inside > 0) return [0, 0, 0, 0]
   const t = Math.min(1, Math.max(0, (x + y) / 128))
   let rgb = BG_A.map((a, k) => a + (BG_B[k] - a) * t)
-  // soft glow behind the dot
-  const glow = Math.max(0, 1 - Math.hypot(x - C.x, y - C.y) / 30) * 0.35
-  rgb = rgb.map((v, k) => v + ([150, 130, 255][k] - v) * glow)
-  for (const arc of ARCS) {
-    if (arcSdf(x, y, arc.r) < 0) rgb = rgb.map((v, k) => v + (arc.color[k] - v) * arc.alpha)
+  rgb = mix(rgb, [150, 130, 255], Math.max(0, 1 - Math.hypot(x - C.x, y - C.y) / 30) * 0.35)
+
+  // dashed orbit, r = 23
+  const dx = x - C.x
+  const dy = y - C.y
+  const dist = Math.hypot(dx, dy)
+  if (Math.abs(dist - 23) < 0.9) {
+    const along = (Math.atan2(dy, dx) + Math.PI) * 23 // arc length
+    if (along % 6.8 < 2.6) rgb = mix(rgb, ORBIT, 0.8)
   }
-  if (Math.hypot(x - C.x, y - C.y) < 4.6) rgb = DOT
+  rgb = disc(rgb, x, y, 48.3, 15.7, 4.4, MOON_A, 1.6)
+  rgb = disc(rgb, x, y, 15.7, 48.3, 3.3, MOON_B, 1.5)
+
+  // planet with a little face
+  rgb = disc(rgb, x, y, 32, 32, 14, PLANET, 2.6)
+  if (dist < 12.7) {
+    if (Math.hypot(x - 27, y - 26) < 2.9) rgb = mix(rgb, WHITE, 0.7)
+    for (const cx of [23.7, 40.3]) {
+      if (((x - cx) / 2.1) ** 2 + ((y - 36.1) / 1.3) ** 2 < 1) rgb = mix(rgb, CHEEK, 0.65)
+    }
+    if (Math.hypot(x - 27.5, y - 32.6) < 1.9 || Math.hypot(x - 36.5, y - 32.6) < 1.9) rgb = OUTLINE
+    // smile: lower part of a small circle centred above the mouth
+    const sd = Math.hypot(x - 32, y - 35.1)
+    if (y > 36.2 && Math.abs(sd - 2.6) < 0.9) rgb = OUTLINE
+  }
   return [...rgb, 255]
 }
 

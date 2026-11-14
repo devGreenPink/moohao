@@ -42,6 +42,8 @@
   --shadow: 0 18px 50px rgba(5, 4, 30, 0.45);
   --scroll-thumb: rgba(185, 162, 255, 0.38);
   --scroll-thumb-hover: rgba(185, 162, 255, 0.62);
+  --word-a: #efe6ff;
+  --word-b: #8fe6f2;
   --radius: 22px;
   --font: "Mitr", "Leelawadee UI", "Sukhumvit Set", "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: dark;
@@ -86,6 +88,8 @@
   --shadow: 0 18px 50px rgba(90, 60, 170, 0.2);
   --scroll-thumb: rgba(74, 58, 180, 0.35);
   --scroll-thumb-hover: rgba(74, 58, 180, 0.6);
+  --word-a: #4a3fcf;
+  --word-b: #d9466f;
   color-scheme: light;
 }
 
@@ -166,22 +170,45 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   100% { opacity: 0; transform: rotate(-28deg) translateX(-480px); }
 }
 
-/* ---------- top bar ---------- */
+/* ---------- top bar: a glass capsule floating in the sky ---------- */
 .topbar {
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: max(14px, env(safe-area-inset-top)) 20px 12px;
-  border-bottom: 1px solid var(--line);
+  width: min(100% - 32px, 1240px);
+  margin: max(12px, env(safe-area-inset-top)) auto 0;
+  padding: 7px 10px 7px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--ring-strong);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.brand-orb {
-  width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
-  display: grid; place-items: center;
-  color: var(--sky);
-  background: radial-gradient(circle at 35% 30%, rgba(185, 162, 255, 0.35), var(--surface-solid));
-  box-shadow: 0 0 0 1.5px var(--ring-strong), 0 0 18px rgba(143, 230, 242, 0.25);
+/* logo: planet (static) + orbit with two little "devices" (the only part that moves) */
+.brand-logo { position: relative; width: 44px; height: 44px; flex-shrink: 0; }
+.brand-logo svg { position: absolute; inset: 0; width: 100%; height: 100%; stroke: none; }
+.logo-orbit { animation: orbit 16s linear infinite; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+.logo-orbit .orbit { fill: none; stroke: var(--lav); stroke-width: 1.4; stroke-dasharray: 2.2 3.6; stroke-linecap: round; opacity: 0.75; }
+.logo-orbit .moon-a { fill: var(--sky); stroke: #2b2363; stroke-width: 1.4; }
+.logo-orbit .moon-b { fill: #ffeec2; stroke: #2b2363; stroke-width: 1.3; }
+.logo-planet .body { fill: #ffc3d6; stroke: #2b2363; stroke-width: 2.2; }
+.logo-planet .shine { fill: #fff; opacity: 0.7; }
+.logo-planet .eye { fill: #2b2363; }
+.logo-planet .smile { fill: none; stroke: #2b2363; stroke-width: 1.6; stroke-linecap: round; }
+.logo-planet .cheek { fill: #ff8fb5; opacity: 0.65; }
+:root.lite .logo-orbit { animation: none; }
+
+/* wordmark: gradient letters and a small sparkle */
+.brand h1 {
+  font-size: 20px; margin: 0; line-height: 1.15; font-weight: 600; letter-spacing: 0.01em;
+  background: linear-gradient(90deg, var(--word-a), var(--word-b));
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
 }
-.brand h1 { font-size: 20px; margin: 0; line-height: 1.1; font-weight: 600; letter-spacing: 0.01em; }
+.brand h1::after {
+  content: "✦"; margin-left: 4px; font-size: 0.6em; vertical-align: 0.55em;
+  color: var(--peach); -webkit-text-fill-color: var(--peach);
+}
 .brand p { margin: 0; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
@@ -194,7 +221,15 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 }
 .chip:hover { border-color: var(--lav); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-.dot.on { background: var(--mint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 25%, transparent), 0 0 10px var(--mint); }
+.dot.on { position: relative; background: var(--mint); box-shadow: 0 0 10px var(--mint); }
+/* a soft signal pulse while it's listening for devices */
+.dot.on::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--mint);
+  animation: signal 2.4s ease-out infinite;
+}
+@keyframes signal { from { transform: scale(1); opacity: 0.55; } to { transform: scale(2.8); opacity: 0; } }
+:root.lite .dot.on::after { animation: none; opacity: 0; }
 .dot.room { background: var(--lav); border-radius: 2px; transform: rotate(45deg); box-shadow: 0 0 10px var(--lav); }
 
 .icon-btn {
@@ -634,7 +669,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 :root[data-theme="light"] :is(.panel, .scan, .me-card, .chip) {
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
-:root[data-theme="light"] .topbar { border-bottom-color: rgba(255, 255, 255, 0.5); }
+:root[data-theme="light"] .topbar { box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85); }
 :root[data-theme="light"] .hero h2 { color: #1f1850; }
 .tray-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -1117,6 +1152,18 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
 }
 
 /* ---------- responsive ---------- */
+/* Desktop: the whole app fits on one screen, no scrolling. The radar takes the height that's
+   left after the header, heading, scan bar and footer (which becomes a single row here);
+   --chrome is that fixed part. The side panel never grows taller than the radar. */
+@media (min-width: 1081px) {
+  :root { --chrome: 368px; }
+  .space { padding: 14px 16px 4px; gap: 10px; }
+  .hero h2 { margin: 4px 0 0; }
+  .radar { --size: min(100%, 540px, max(260px, calc(100dvh - var(--chrome)))); margin: 12px auto 24px; }
+  .panel { max-height: max(280px, calc(100dvh - var(--chrome) + 24px)); }
+  .me { flex-direction: row; justify-content: center; gap: 16px; padding-top: 4px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+}
+
 @media (max-width: 1080px) {
   .stage { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 4px; }
   .radar, .panel { grid-column: 1; }
@@ -1127,7 +1174,6 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
 }
 
 @media (max-width: 640px) {
-  .topbar { padding-left: 16px; padding-right: 16px; }
   .brand p { display: none; }
   .space { padding-top: 16px; gap: 10px; }
   .radar { margin: 18px auto 30px; }
@@ -1148,10 +1194,10 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .icon-btn.install { padding: 0 9px; }
   /* Phone: two tidy rows instead of one squeezed row —
      [logo  Nearby ........ icons] then [ room / network chip, full width ]. */
-  .topbar { flex-wrap: wrap; row-gap: 10px; padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 10px; }
+  .topbar { flex-wrap: wrap; row-gap: 8px; }
   .brand { flex: 1; gap: 10px; }
-  .brand-orb { width: 36px; height: 36px; }
-  .brand-orb svg { width: 20px; height: 20px; }
+  .topbar { width: calc(100% - 20px); margin-top: max(10px, env(safe-area-inset-top)); border-radius: 24px; padding: 8px; }
+  .brand-logo { width: 38px; height: 38px; }
   .brand h1 { font-size: 18px; }
   .actions { display: contents; }
   .actions > .icon-btn { order: 1; }
