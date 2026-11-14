@@ -26,7 +26,7 @@ function face(cx, cy, s = 1, light = false) {
 
 /** An outlined rounded line: dark outline underneath, colour on top. */
 function line(d, colour = 'light', w = 3.4) {
-  return `<path class="sp-ol" d="${d}" stroke-width="${w + 6}"/><path class="sp-lc sp-lc-${colour}" d="${d}" stroke-width="${w}"/>`
+  return `<path class="sp-ol" d="${d}" stroke-width="${w + 4.4}"/><path class="sp-lc sp-lc-${colour}" d="${d}" stroke-width="${w}"/>`
 }
 
 /** A tiny four-point sparkle. */

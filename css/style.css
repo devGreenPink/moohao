@@ -922,9 +922,11 @@ textarea { resize: vertical; width: 100%; }
 :root[data-theme="light"] .self-you { color: #fff; }
 
 /* ---------- space mascots (js/ui/avatars.js) ---------- */
-/* Sticker style: every filled piece gets the same thick dark-purple outline. */
+/* Sticker style: every filled piece gets the same soft dark-purple outline (--sp-line);
+   eyes and visor stay a little darker (--sp-outline) so faces read at small sizes. */
 .space-avatar {
   --sp-outline: #2b2363;
+  --sp-line: #3d3283;
   --sp-cream: #ffeec2;
   --sp-pink: #ffc3d6;
   --sp-lav: #cdbfff;
@@ -932,7 +934,7 @@ textarea { resize: vertical; width: 100%; }
 }
 .space-avatar .sp-body, .space-avatar .sp-light, .space-avatar .sp-cream, .space-avatar .sp-pink,
 .space-avatar .sp-shade, .space-avatar .sp-glass {
-  stroke: var(--sp-outline); stroke-width: 3; stroke-linejoin: round;
+  stroke: var(--sp-line); stroke-width: 2.2; stroke-linejoin: round;
 }
 .space-avatar .sp-body { fill: var(--tint); }
 .space-avatar .sp-light { fill: var(--sp-lav); }
@@ -943,11 +945,11 @@ textarea { resize: vertical; width: 100%; }
 .space-avatar .sp-dot { stroke: none; }
 .space-avatar .sp-dot-shade { fill: color-mix(in srgb, var(--tint) 62%, var(--sp-outline)); }
 .space-avatar .sp-dot-cream { fill: var(--sp-cream); }
-.space-avatar .sp-ol { fill: none; stroke: var(--sp-outline); stroke-linecap: round; stroke-linejoin: round; }
+.space-avatar .sp-ol { fill: none; stroke: var(--sp-line); stroke-linecap: round; stroke-linejoin: round; }
 .space-avatar .sp-lc { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .space-avatar .sp-lc-light { stroke: var(--sp-lav); }
 .space-avatar .sp-lc-cream { stroke: var(--sp-cream); }
-.space-avatar .sp-visor { fill: var(--sp-outline); stroke: var(--sp-outline); stroke-width: 3; }
+.space-avatar .sp-visor { fill: var(--sp-outline); stroke: var(--sp-outline); stroke-width: 2.2; }
 .space-avatar .sp-spark { fill: var(--sp-cream); stroke: none; }
 .space-avatar .sp-eye { fill: var(--sp-outline); stroke: none; }
 .space-avatar .sp-glint { fill: #fff; stroke: none; }
