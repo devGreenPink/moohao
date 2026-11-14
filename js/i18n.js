@@ -274,6 +274,8 @@ const strings = {
     offerInboxFull: 'This page already holds {size} of received files. ',
     offerNoteFull: 'This page already holds {size} of received files. Save or clear some first so your phone doesn’t run out of memory.',
     moreFiles: '+ {n} more file(s)',
+    riskyFiles: '⚠ {files} can run programs or open as a web page. Only open it if you trust {name}.',
+    floodMuted: '{name} is sending too many requests. Ignoring them for 2 minutes.',
 
     // permissions
     camAskTitle: 'Use the camera to scan?',
@@ -566,6 +568,8 @@ const strings = {
     offerInboxFull: 'หน้านี้เก็บไฟล์ที่ได้รับไว้แล้ว {size}: ',
     offerNoteFull: 'หน้านี้เก็บไฟล์ที่ได้รับไว้แล้ว {size} บันทึกหรือล้างบางส่วนก่อน เครื่องจะได้ไม่หน่วยความจำเต็ม',
     moreFiles: '+ อีก {n} ไฟล์',
+    riskyFiles: '⚠ {files} เป็นไฟล์ที่รันโปรแกรมหรือเปิดเป็นหน้าเว็บได้ เปิดเฉพาะเมื่อไว้ใจ {name}',
+    floodMuted: '{name} ส่งคำขอถี่เกินไป ระงับไว้ 2 นาที',
 
     // permissions
     camAskTitle: 'ใช้กล้องเพื่อสแกน?',

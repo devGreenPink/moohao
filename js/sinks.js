@@ -32,8 +32,17 @@ function coalescer(flush) {
   }
 }
 
+/**
+ * A file name as the sender gave it, minus invisible characters that change how it reads:
+ * direction overrides (U+202A–202E, U+2066–2069, U+200E/F) can show "x[RLO]gpj.exe" as
+ * "xexe.jpg", hiding the real type.
+ */
+export function cleanFileName(name) {
+  return String(name || '').replace(/[‎‏‪-‮⁦-⁩]/g, '').slice(0, 255) || 'file'
+}
+
 export function safeFileName(name) {
-  const clean = String(name || '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '').trim().slice(0, 200)
+  const clean = cleanFileName(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '').trim().slice(0, 200)
   return clean || 'file'
 }
 

@@ -996,6 +996,14 @@ textarea { resize: vertical; width: 100%; }
 
 /* received files */
 .offer-note, .inbox-note { margin: -4px 0 0; color: var(--sky); line-height: 1.45; }
+/* files that can run programs: a clear warning above the list, and the rows marked */
+.offer-warn {
+  margin: 0; padding: 10px 12px; border-radius: 14px; line-height: 1.45;
+  color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+}
+.file-list li.risky { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.file-list li.risky .thumb { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .inbox-note.warn { color: var(--peach); }
 .inbox { display: flex; flex-direction: column; gap: 14px; max-height: 56dvh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
 .inbox .file-list { max-height: none; overflow: visible; }

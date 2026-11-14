@@ -3,7 +3,7 @@ import {createSession, detectNetworkRoom, codeRoom, pairRoom, randomId, RESUME_W
 import {parseRoomCode, displayCode, codeWords, isWordCode, isPictureCode, pictureIds, pictureCode, newPictureCode, PICTURES, PICTURE_IDS, PICTURE_LENGTH} from './words.js'
 import {notifyState, toggleNotify, notify, closeNotification, onNotificationAction, buzz, bumpBadge, clearBadge} from './notify.js'
 import {scannerSupported, runScanner} from './ui/scanner.js'
-import {memorySink, diskSink, diskSupported, streamSink, streamSupported, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
+import {memorySink, diskSink, diskSupported, streamSink, streamSupported, cleanFileName, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
 import {loadPairs, addPair, removePair, touchPair} from './pairing.js'
 import {AVATARS, COLOR_COUNT, defaultAvatar, defaultColor, cleanAvatar, cleanColor, withLook, randomName, isOldGeneratedName} from './identity.js'
 import {avatarSvg} from './ui/avatars.js'
@@ -444,6 +444,7 @@ function removePeerNow(id) {
   if (!p) return
   clearTimeout(p.clearTimer)
   state.peers.delete(id)
+  flood.delete(id)
   radar.remove(id)
   if (state.offerPeer === id && $('#dlg-offer').open) $('#dlg-offer').close('no')
   if (!onlineCount()) restartSearchClock()
@@ -969,6 +970,7 @@ async function runQueue() {
 
 function fileRow(file, {thumb, url}) {
   const li = document.createElement('li')
+  if (isRisky(file.name)) li.classList.add('risky')
   let visual
   if (thumb) {
     visual = document.createElement('img')
@@ -1034,7 +1036,73 @@ async function chooseSink(files, total) {
   return null
 }
 
+// ---------- flood protection ----------
+
+/**
+ * Anyone in the same room can send offers, messages and pair requests, and each one opens a
+ * dialog. Per device: only a few waiting at once and a few per minute; a device that keeps
+ * going is ignored for a couple of minutes (its offers are simply declined).
+ */
+const FLOOD_RULES = {
+  offer: {pending: 1, perMinute: 6},
+  pair: {pending: 1, perMinute: 2},
+  text: {pending: 3, perMinute: 10},
+}
+const FLOOD_MUTE_MS = 2 * 60_000
+const flood = new Map() // peerId -> {mutedUntil, told, offer|pair|text: {pending, times}}
+
+/** May this device open one more dialog of this kind right now? */
+function admit(peerId, kind) {
+  const rule = FLOOD_RULES[kind]
+  const now = Date.now()
+  let f = flood.get(peerId)
+  if (!f) flood.set(peerId, (f = {mutedUntil: 0, told: false}))
+  if (now < f.mutedUntil) return false
+  if (f.mutedUntil) {
+    f.mutedUntil = 0
+    f.told = false
+  }
+  const k = (f[kind] ??= {pending: 0, times: []})
+  k.times = k.times.filter(ts => now - ts < 60_000)
+  if (k.times.length >= rule.perMinute) {
+    f.mutedUntil = now + FLOOD_MUTE_MS
+    if (!f.told) {
+      f.told = true
+      toast(t('floodMuted', {name: nameOf(peerId)}), 5000)
+    }
+    return false
+  }
+  if (k.pending >= rule.pending) return false
+  k.times.push(now)
+  k.pending++
+  return true
+}
+
+function release(peerId, kind) {
+  const k = flood.get(peerId)?.[kind]
+  if (k) k.pending = Math.max(0, k.pending - 1)
+}
+
+// ---------- incoming offers ----------
+
+/** Files that run programs or open as web pages when opened: worth a warning. */
+const RISKY_EXT = new Set([
+  'exe', 'msi', 'msix', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse',
+  'wsf', 'wsh', 'hta', 'lnk', 'url', 'reg', 'jar', 'apk', 'xapk', 'apks', 'aab', 'app', 'dmg', 'pkg', 'sh',
+  'command', 'run', 'deb', 'rpm', 'appimage', 'iso', 'html', 'htm', 'xhtml', 'mht', 'docm', 'xlsm', 'pptm',
+  'dotm', 'xltm',
+])
+const isRisky = name => RISKY_EXT.has(fileExt(name))
+
 function askOffer(peerId, data, signal, session) {
+  if (!admit(peerId, 'offer')) return Promise.resolve(null)
+  // Names are shown and saved as-is, so drop invisible direction marks first: they can make
+  // "invoice[RLO]gpj.exe" look like "invoiceexe.jpg".
+  for (const f of data.files) f.name = cleanFileName(f.name)
+  return offerDialog(peerId, data, signal, session).finally(() => release(peerId, 'offer'))
+}
+
+function offerDialog(peerId, data, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer || state.withdrawn.has(data.tid)) return resolve(null)
@@ -1050,6 +1118,12 @@ function askOffer(peerId, data, signal, session) {
       rows.push(more)
     }
     $('#offer-files').replaceChildren(...rows)
+    const risky = data.files.filter(f => isRisky(f.name)).map(f => f.name)
+    $('#offer-warn').hidden = !risky.length
+    if (risky.length) {
+      const list = risky.slice(0, 3).join(', ') + (risky.length > 3 ? ` +${risky.length - 3}` : '')
+      $('#offer-warn').textContent = t('riskyFiles', {files: list, name})
+    }
     // Say what happens after "Accept" (save picker, straight to Downloads, or preview here),
     // and why, when it's because the files already kept in this page add up.
     const plan = sinkPlan(data.files.length, total)
@@ -1190,25 +1264,34 @@ function linkFrom(text) {
 }
 
 function showMessage(peerId, text) {
+  if (!admit(peerId, 'text')) return
   const name = nameOf(peerId)
   enqueue(async () => {
-    $('#message-title').textContent = t('messageFrom', {name})
-    $('#message-body').textContent = text
-    const link = linkFrom(text)
-    const open = $('#message-open')
-    open.hidden = !link
-    if (link) open.href = link
-    else open.removeAttribute('href')
-    const copy = $('#message-copy')
-    copy.textContent = t('copy')
-    copy.onclick = async () => {
-      if (await copyText(text)) copy.textContent = t('copied')
+    try {
+      await messageDialog(peerId, name, text)
+    } finally {
+      release(peerId, 'text')
     }
-    chime()
-    flagTitle()
-    alertUser({title: t('messageFrom', {name}), body: text.slice(0, 140), tag: `msg-${peerId}`})
-    await showDialog($('#dlg-message'))
   })
+}
+
+async function messageDialog(peerId, name, text) {
+  $('#message-title').textContent = t('messageFrom', {name})
+  $('#message-body').textContent = text
+  const link = linkFrom(text)
+  const open = $('#message-open')
+  open.hidden = !link
+  if (link) open.href = link
+  else open.removeAttribute('href')
+  const copy = $('#message-copy')
+  copy.textContent = t('copy')
+  copy.onclick = async () => {
+    if (await copyText(text)) copy.textContent = t('copied')
+  }
+  chime()
+  flagTitle()
+  alertUser({title: t('messageFrom', {name}), body: text.slice(0, 140), tag: `msg-${peerId}`})
+  await showDialog($('#dlg-message'))
 }
 
 let composePeer = null
@@ -1415,6 +1498,11 @@ function onPairConfirmed(peerId, request) {
 
 /** Ask the user; the pairing itself is saved later in onPairConfirmed. */
 function askPair(peerId, request, signal, session) {
+  if (!admit(peerId, 'pair')) return Promise.resolve(false)
+  return pairDialog(peerId, request, signal, session).finally(() => release(peerId, 'pair'))
+}
+
+function pairDialog(peerId, request, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer) return resolve(false)
