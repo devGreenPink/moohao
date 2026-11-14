@@ -1,5 +1,6 @@
 import {t} from '../i18n.js'
 import {mascot} from './mascot.js'
+import {avatarSvg} from './avatars.js'
 
 /**
  * Side panel (bottom sheet on phones), organised in labelled sections:
@@ -63,7 +64,7 @@ export function createPanel(root, {onSendFiles, onSendText, onPair, onUnpair, on
       const {info, status} = view
       const look = `${info.avatar}|${info.color}|${info.device}`
       if (lastLook !== look) {
-        $('#panel-avatar').textContent = info.avatar
+        $('#panel-avatar').innerHTML = avatarSvg(info.avatar)
         $('#panel-who').dataset.color = String(info.color)
         $('#panel-device').innerHTML = mascot(info.device)
         lastLook = look

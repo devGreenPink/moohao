@@ -5,7 +5,8 @@ import {notifyState, toggleNotify, notify, closeNotification, onNotificationActi
 import {scannerSupported, runScanner} from './ui/scanner.js'
 import {memorySink, diskSink, diskSupported, streamSink, streamSupported, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
 import {loadPairs, addPair, removePair, touchPair} from './pairing.js'
-import {AVATARS, COLOR_COUNT, defaultAvatar, defaultColor, cleanAvatar, cleanColor, withLook} from './identity.js'
+import {AVATARS, COLOR_COUNT, defaultAvatar, defaultColor, cleanAvatar, cleanColor, withLook, randomName, isOldGeneratedName} from './identity.js'
+import {avatarSvg} from './ui/avatars.js'
 import {knownDevice, noteSeen, noteTransfer, setNickname, familiarity, displayName} from './known.js'
 import {qrcode} from '../vendor/vendor.js'
 import {ICONS} from './ui/mascot.js'
@@ -153,20 +154,17 @@ function detectDevice() {
   return {device, os, browser}
 }
 
-function randomName() {
-  const adj = ['Blue', 'Swift', 'Sunny', 'Quiet', 'Brave', 'Lucky', 'Cosmic', 'Mellow', 'Bright', 'Jolly', 'Misty', 'Rapid', 'Gentle', 'Clever', 'Happy', 'Snowy']
-  const animal = ['Otter', 'Panda', 'Fox', 'Koala', 'Falcon', 'Tiger', 'Dolphin', 'Owl', 'Rabbit', 'Penguin', 'Lynx', 'Gecko', 'Whale', 'Heron', 'Turtle', 'Elephant']
-  const pick = list => list[Math.floor(Math.random() * list.length)]
-  return `${pick(adj)} ${pick(animal)}`
-}
-
-const firstRun = !store('nearby.name')
+// New devices (and ones still using an old auto-generated animal name) get a random space
+// name and matching mascot straight away — no setup step; a hint shows how to change it.
+const storedName = store('nearby.name')
+const freshIdentity = !storedName || isOldGeneratedName(storedName)
 const me = {
-  name: store('nearby.name') || randomName(),
+  name: freshIdentity ? randomName() : storedName,
   deviceId: store('nearby.deviceId') || randomId(12),
   ...detectDevice(),
 }
-me.avatar = cleanAvatar(store('nearby.avatar')) || defaultAvatar(me.name, me.deviceId)
+me.avatar = (!freshIdentity && cleanAvatar(store('nearby.avatar'))) || defaultAvatar(me.name, me.deviceId)
+store('nearby.avatar', me.avatar)
 const savedColor = store('nearby.color')
 me.color = (savedColor !== null ? cleanColor(Number(savedColor)) : null) ?? defaultColor(me.deviceId, me.name)
 store('nearby.name', me.name)
@@ -366,10 +364,11 @@ function updateMode() {
 
 function renderMe() {
   $('#me-name').textContent = me.name
-  $('#me-avatar').textContent = me.avatar
+  $('#me-avatar').innerHTML = avatarSvg(me.avatar)
   $('#me-card').dataset.color = String(me.color)
   $('#self').dataset.color = String(me.color)
-  $('#self-avatar').textContent = me.avatar
+  $('#self-avatar').innerHTML = avatarSvg(me.avatar)
+  $('#self-hint').dataset.color = String(me.color)
   $('#self').setAttribute('aria-label', `${t('you')}: ${me.name} — ${t('profileTitle')}`)
 }
 
@@ -546,7 +545,7 @@ function transferState(tid, status) {
 
 function viewModel(x) {
   const p = state.peers.get(x.peerId)
-  const info = p?.info || {displayName: '?', avatar: '❔', color: 0}
+  const info = p?.info || {displayName: '?', avatar: 'planet', color: 0}
   return {
     tid: x.tid, peerId: x.peerId, dir: x.dir, status: x.status, files: x.files,
     done: x.done, total: x.total, speed: x.speed, eta: x.eta,
@@ -871,7 +870,7 @@ function askOffer(peerId, data, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer || state.withdrawn.has(data.tid)) return resolve(null)
-    const name = `${peer.info.avatar} ${peer.info.displayName}`
+    const name = peer.info.displayName
     const total = data.files.reduce((s, f) => s + f.size, 0)
     $('#offer-title').textContent = t('incomingTitle', {name})
     $('#offer-summary').textContent = t('filesCount', {n: data.files.length, size: fmtSize(total)})
@@ -1037,6 +1036,20 @@ $('#compose-text').addEventListener('keydown', e => {
   }
 })
 
+// ---------- first-run hint ----------
+
+/** A short "this is you" bubble under your own avatar instead of a setup dialog. */
+function showSelfHint() {
+  const hint = $('#self-hint')
+  hint.hidden = false
+  const hide = () => {
+    hint.hidden = true
+    document.removeEventListener('pointerdown', hide, true)
+  }
+  setTimeout(() => document.addEventListener('pointerdown', hide, true), 0)
+  setTimeout(hide, 12_000)
+}
+
 // ---------- profile ----------
 
 function applyTheme(theme) {
@@ -1046,10 +1059,9 @@ function applyTheme(theme) {
   sky.setTheme(theme === 'light' ? 'dawn' : 'night')
 }
 
-function openProfile({welcome = false} = {}) {
+function openProfile() {
   const draft = {avatar: me.avatar, color: me.color, theme: document.documentElement.dataset.theme === 'light' ? 'light' : 'night'}
-  $('#profile-title').textContent = welcome ? t('welcomeTitle') : t('profileTitle')
-  $('#profile-intro').hidden = !welcome
+  $('#profile-title').textContent = t('profileTitle')
   const nameInput = $('#profile-name')
   nameInput.value = me.name
 
@@ -1059,9 +1071,10 @@ function openProfile({welcome = false} = {}) {
     b.tabIndex = on ? 0 : -1
   }
   const preview = () => {
-    $('#profile-avatar').textContent = draft.avatar
+    $('#profile-avatar').innerHTML = avatarSvg(draft.avatar)
     $('#profile-preview').dataset.color = String(draft.color)
-    for (const b of $('#profile-avatars').children) mark(b, b.textContent === draft.avatar)
+    $('#profile-avatars').dataset.color = String(draft.color) // picker previews your colour
+    for (const b of $('#profile-avatars').children) mark(b, b.dataset.avatar === draft.avatar)
     for (const b of $('#profile-colors').children) mark(b, Number(b.dataset.color) === draft.color)
     for (const b of $('#profile-theme').children) mark(b, b.dataset.themeValue === draft.theme)
   }
@@ -1070,7 +1083,9 @@ function openProfile({welcome = false} = {}) {
     const b = document.createElement('button')
     b.type = 'button'
     b.setAttribute('role', 'radio')
-    b.textContent = a
+    b.dataset.avatar = a
+    b.innerHTML = avatarSvg(a)
+    b.setAttribute('aria-label', a)
     b.addEventListener('click', () => { draft.avatar = a; preview() })
     return b
   }))
@@ -1178,7 +1193,7 @@ function askPair(peerId, request, signal, session) {
     if (signal?.aborted || !peer) return resolve(false)
     const code = await session.verificationCode(peerId).catch(() => null)
     const name = request.name || peer.info.displayName
-    $('#pair-title').textContent = t('pairTitle', {name: `${peer.info.avatar} ${name}`})
+    $('#pair-title').textContent = t('pairTitle', {name})
     $('#pair-code').textContent = code || '—'
     const dlg = $('#dlg-pair')
     const abort = () => dlg.open && dlg.close('no')
@@ -1227,7 +1242,9 @@ function renderPairList() {
     const li = document.createElement('li')
     const name = document.createElement('span')
     name.className = 'pair-name'
-    name.textContent = `${known?.avatar || defaultAvatar(rec.name, rec.deviceId)} ${known?.nickname || rec.name}`
+    li.dataset.color = String(cleanColor(known?.color) ?? defaultColor(rec.deviceId, rec.name))
+    name.innerHTML = avatarSvg(cleanAvatar(known?.avatar) || defaultAvatar(rec.name, rec.deviceId))
+    name.append(` ${known?.nickname || rec.name}`)
     const st = document.createElement('span')
     st.className = `pair-state${online ? ' on' : ''}`
     st.textContent = online ? t('online') : t('notConnected')
@@ -1645,4 +1662,4 @@ const startCode = codeFromHash()
 if (startCode) enterRoom(startCode)
 else enterLocal()
 
-if (firstRun) openProfile({welcome: true})
+if (freshIdentity) showSelfHint()

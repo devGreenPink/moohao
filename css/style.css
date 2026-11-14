@@ -874,7 +874,6 @@ textarea { resize: vertical; width: 100%; }
   .space { padding-top: 16px; gap: 10px; }
   .radar { margin: 18px auto 30px; }
   .node { --orb: 52px; min-width: 64px; max-width: 108px; }
-  .node-avatar { font-size: 25px; }
   .tray { left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); width: auto; max-height: 36dvh; }
   .toasts { bottom: auto; top: 76px; }
   .avatar-grid { grid-template-columns: repeat(6, 1fr); }
@@ -909,3 +908,59 @@ textarea { resize: vertical; width: 100%; }
 
 /* the "You" pill on darker day-theme colours needs light text */
 :root[data-theme="light"] .self-you { color: #fff; }
+
+/* ---------- space mascots (js/ui/avatars.js) ---------- */
+.space-avatar { display: block; width: 100%; height: 100%; overflow: visible; fill: none; stroke: none; }
+.space-avatar .sp-body { fill: var(--tint); stroke: none; }
+.space-avatar .sp-round { stroke: var(--tint); stroke-width: 4; stroke-linejoin: round; }
+.space-avatar .sp-shade { fill: color-mix(in srgb, var(--tint) 60%, #1d1a45); stroke: none; }
+.space-avatar .sp-light { fill: color-mix(in srgb, var(--tint) 45%, #fff); stroke: none; }
+.space-avatar .sp-line { fill: none; stroke: color-mix(in srgb, var(--tint) 55%, #1d1a45); stroke-linecap: round; }
+.space-avatar .sp-sline { fill: none; stroke: color-mix(in srgb, var(--tint) 60%, #1d1a45); stroke-linecap: round; }
+.space-avatar .sp-lline { fill: none; stroke: color-mix(in srgb, var(--tint) 45%, #fff); stroke-linecap: round; }
+.space-avatar .sp-rays path { fill: none; stroke: color-mix(in srgb, var(--tint) 70%, #1d1a45); stroke-width: 3.5; stroke-linecap: round; }
+.space-avatar .sp-glass { fill: rgba(255, 255, 255, 0.3); stroke: color-mix(in srgb, var(--tint) 35%, #fff); stroke-width: 1.5; }
+.space-avatar .sp-visor { fill: #1d1a45; stroke: none; }
+.space-avatar .sp-flame { fill: #ffb48a; stroke: none; }
+.space-avatar .sp-eye { fill: #1d1a45; stroke: none; }
+.space-avatar .sp-glint { fill: #fff; stroke: none; }
+.space-avatar .sp-mouth { fill: none; stroke: #1d1a45; stroke-linecap: round; }
+.space-avatar .sp-cheek { fill: #ff7aa8; opacity: 0.55; stroke: none; }
+.space-avatar .sp-face-light .sp-eye { fill: #fff; }
+.space-avatar .sp-face-light .sp-mouth { stroke: #fff; }
+/* day theme colours are darker; lighten the body so the face stays readable */
+:root[data-theme="light"] .space-avatar .sp-body { fill: color-mix(in srgb, var(--tint) 55%, #fff); }
+:root[data-theme="light"] .space-avatar .sp-round { stroke: color-mix(in srgb, var(--tint) 55%, #fff); }
+
+.node-avatar { display: block; width: 46px; height: 46px; font-size: 0; }
+.self-avatar { display: block; width: 72%; height: 72%; font-size: 0; }
+.panel-avatar { display: block; width: 44px; height: 44px; font-size: 0; }
+.me-avatar .space-avatar { width: 28px; height: 28px; }
+.profile-avatar { display: block; width: 64px; height: 64px; font-size: 0; }
+
+.avatar-grid button .space-avatar { width: 78%; height: 78%; }
+.pair-name .space-avatar { display: inline-block; width: 22px; height: 22px; vertical-align: -6px; }
+
+/* first-run "this is you" bubble under your own mascot */
+.self-hint {
+  position: absolute; left: 50%; top: calc(50% + 10% + 22px); z-index: 3;
+  transform: translateX(-50%);
+  width: max-content; max-width: 240px; margin: 0;
+  padding: 8px 14px; border-radius: 14px;
+  background: var(--surface-solid); color: var(--text);
+  border: 1px solid var(--tint, var(--lav));
+  box-shadow: var(--shadow);
+  font-size: 13px; text-align: center; line-height: 1.4;
+  pointer-events: none;
+  animation: hint-in 0.4s cubic-bezier(.2,1.4,.4,1) both;
+}
+.self-hint::before {
+  content: ""; position: absolute; left: 50%; top: -6px; width: 10px; height: 10px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--surface-solid);
+  border-left: 1px solid var(--tint, var(--lav)); border-top: 1px solid var(--tint, var(--lav));
+}
+@keyframes hint-in { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+@media (max-width: 640px) {
+  .node-avatar { width: 38px; height: 38px; }
+}

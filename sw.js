@@ -3,7 +3,7 @@
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.4.0'
+const VERSION = 'nearby-v2.5.0'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 
@@ -22,6 +22,7 @@ const SHELL = [
   './js/identity.js',
   './js/known.js',
   './js/ui/transfers.js',
+  './js/ui/avatars.js',
   './js/ui/scanner.js',
   './vendor/jsqr.js',
   './js/ui/mascot.js',

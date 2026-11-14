@@ -1,4 +1,5 @@
 import {mascot, ICONS} from './mascot.js'
+import {avatarSvg} from './avatars.js'
 
 const RING = 2 * Math.PI * 46
 
@@ -150,7 +151,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     // Only touch the DOM when the look actually changed.
     const look = `${info.avatar}|${info.device}|${tier}`
     if (node.look !== look) {
-      el.querySelector('.node-avatar').textContent = info.avatar
+      el.querySelector('.node-avatar').innerHTML = avatarSvg(info.avatar)
       el.querySelector('.node-device').innerHTML = mascot(info.device)
       el.querySelector('.node-tag').innerHTML = TAGS[tier]
       node.look = look

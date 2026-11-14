@@ -45,7 +45,7 @@ function currentFile(files, done) {
 }
 
 function title(vm) {
-  const name = `${vm.peer.avatar} ${vm.peer.displayName}`
+  const name = vm.peer.displayName
   const s = vm.status
   if (s === 'reconnecting') return t('xReconnecting', {name})
   if (s === 'declined') return t('xDeclined', {name})
