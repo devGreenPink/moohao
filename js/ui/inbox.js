@@ -231,7 +231,9 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
   async function removeOne(id) {
     const it = items.find(x => x.id === id)
     if (!it) return
-    if (!it.saved && !(await confirmBox({title: t('deleteQ', {name: it.name}), body: t('deleteBody'), ok: t('deleteFile')}))) return
+    // Always ask: deleting is the one thing in this list that can't be undone.
+    const body = t(it.saved ? 'deleteBodySaved' : 'deleteBody')
+    if (!(await confirmBox({title: t('deleteQ', {name: it.name}), body, ok: t('deleteFile')}))) return
     drop([id])
     // keep keyboard focus inside the dialog
     ;(list.querySelector('.file-actions .btn') || dlg.querySelector('[value="close"]'))?.focus()
