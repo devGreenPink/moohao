@@ -184,6 +184,21 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     for (const node of nodes.values()) syncBlip(node)
   })
 
+  /**
+   * A ring of light spreading out from you: someone new showed up. When several devices
+   * arrive at once (opening the app in a busy room) they share one ripple.
+   */
+  let lastRipple = 0
+  function ripple() {
+    const now = performance.now()
+    if (!effectsOn() || now - lastRipple < 900) return
+    lastRipple = now
+    const ring = document.createElement('div')
+    ring.className = 'radar-ripple'
+    ring.addEventListener('animationend', () => ring.remove(), {once: true})
+    beamLayer.append(ring)
+  }
+
   /** A little comet flying between you and a device (dir 'out' = from you). */
   function launch(id, dir = 'out') {
     const node = nodes.get(id)
@@ -286,7 +301,9 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
 
   /** info: {displayName, avatar, color, device, ...}; tier: 'paired' | 'known' | 'new' */
   function upsert(id, info, {tier = 'new', offline = false} = {}) {
+    const fresh = !nodes.has(id)
     const node = nodes.get(id) || create(id, info)
+    if (fresh && !offline) ripple()
     const relayout = node.tier !== tier || !node.placed
     node.info = info
     node.tier = tier

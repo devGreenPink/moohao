@@ -25,6 +25,8 @@
 
   --sweep: rgba(143, 230, 242, 0.22);
   --sweep-edge: #8fe6f2;
+  --tick: rgba(185, 162, 255, 0.4);
+  --tick-major: rgba(205, 190, 255, 0.75);
   --radar-core: rgba(185, 162, 255, 0.24);
   --radar-fill: rgba(16, 15, 52, 0.45);
   --radar-rim: rgba(185, 162, 255, 0.45);
@@ -71,6 +73,8 @@
 
   --sweep: rgba(240, 110, 150, 0.22);
   --sweep-edge: #ef5f8a;
+  --tick: rgba(74, 58, 180, 0.35);
+  --tick-major: rgba(74, 58, 180, 0.65);
   --radar-core: rgba(255, 255, 255, 0.26);
   --radar-fill: rgba(96, 76, 214, 0.08);
   --radar-rim: rgba(74, 58, 180, 0.5);
@@ -196,7 +200,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .logo-planet .eye { fill: var(--sp-outline); }
 .logo-planet .smile { fill: none; stroke: var(--sp-outline); stroke-width: 1.6; stroke-linecap: round; }
 .logo-planet .cheek { fill: #ff8fb5; opacity: 0.65; }
-:root.lite .logo-orbit { animation: none; }
+:root.lite .logo-orbit, :root.lite .self-rings i { animation: none; }
+:root.lite .radar-ripple { display: none; }
 
 /* wordmark: gradient letters and a small sparkle */
 .brand h1 {
@@ -296,10 +301,46 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 }
 .radar-cross::before, .radar-cross::after { content: ""; transform: rotate(45deg); opacity: 0.6; }
 .radar-cross::after { transform: rotate(-45deg); }
+/* the sweep: a long fading tail behind a bright leading edge (the edge sits at 12 o'clock
+   of the rotating layer, where the blips are timed from) */
 .radar-sweep {
   position: absolute; inset: 0; border-radius: 50%;
-  background: conic-gradient(from -75deg, transparent 0deg, var(--sweep) 75deg, transparent 75.5deg);
+  background: conic-gradient(from -110deg,
+    transparent 0deg,
+    color-mix(in srgb, var(--sweep) 30%, transparent) 50deg,
+    var(--sweep) 98deg,
+    color-mix(in srgb, var(--sweep-edge) 50%, transparent) 109.4deg,
+    transparent 110deg);
   animation: sweep 7s linear infinite;
+}
+
+/* instrument scale around the rim: a short tick every 10°, a longer one every 30° (static) */
+.radar-ticks { position: absolute; inset: 0; border-radius: 50%; }
+.radar-ticks::before, .radar-ticks::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+}
+.radar-ticks::before {
+  background: repeating-conic-gradient(from -0.3deg, var(--tick) 0 0.6deg, transparent 0.6deg 10deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 95.5%, #000 96%);
+  mask: radial-gradient(closest-side, transparent 95.5%, #000 96%);
+}
+.radar-ticks::after {
+  background: repeating-conic-gradient(from -0.5deg, var(--tick-major) 0 1deg, transparent 1deg 30deg);
+  -webkit-mask: radial-gradient(closest-side, transparent 91.5%, #000 92%);
+  mask: radial-gradient(closest-side, transparent 91.5%, #000 92%);
+}
+
+/* "found someone": one ring of light spreading out from the centre */
+.radar-ripple {
+  position: absolute; left: 50%; top: 50%; width: 20%; aspect-ratio: 1;
+  border-radius: 50%; border: 2px solid var(--sweep-edge);
+  box-shadow: 0 0 18px var(--sweep-edge);
+  pointer-events: none;
+  animation: ripple 1.5s cubic-bezier(.2, .7, .3, 1) forwards;
+}
+@keyframes ripple {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 0.85; }
+  to { transform: translate(-50%, -50%) scale(4.4); opacity: 0; }
 }
 .radar-sweep::after {
   content: ""; position: absolute; left: 50%; top: 0;
@@ -333,6 +374,23 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   pointer-events: none;
 }
 @keyframes ping { 0% { transform: scale(0.8); opacity: 0.6; } 100% { transform: scale(1.9); opacity: 0; } }
+
+/* two thin rings turning opposite ways around you: a segmented one and a dotted one */
+.self-rings { position: absolute; inset: 0; pointer-events: none; }
+.self-rings i { position: absolute; border-radius: 50%; }
+.self-rings i:first-child {
+  inset: -17%;
+  background: repeating-conic-gradient(from 8deg, var(--tint) 0 56deg, transparent 56deg 90deg);
+  -webkit-mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  mask: radial-gradient(closest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2px));
+  opacity: 0.75;
+  animation: spin 22s linear infinite;
+}
+.self-rings i:last-child {
+  inset: -29%;
+  border: 1.5px dotted color-mix(in srgb, var(--tint) 70%, transparent);
+  animation: spin 34s linear infinite reverse;
+}
 .self-avatar { font-size: clamp(28px, 4.6vw, 42px); line-height: 1; }
 .self-you {
   position: absolute; bottom: -11px; left: 50%; transform: translateX(-50%);
@@ -1211,7 +1269,8 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .actions { display: contents; }
   .actions > .icon-btn { order: 1; }
   #btn-room { order: 2; flex: 1 0 100%; justify-content: center; min-width: 0; }
-  #mode-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #mode-label { flex: 0 1 auto; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  #mode-label:has(.chip-pics) { flex-shrink: 0; }
   .toasts { top: 118px; }
   .pending-bar { top: 112px; }
   /* smaller devices on a smaller radar */
