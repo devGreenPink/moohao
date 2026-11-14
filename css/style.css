@@ -674,12 +674,24 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 }
 .field input:focus { border-color: var(--sky); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sky) 25%, transparent); }
 .avatar-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+/* Picker tiles: soft rounded dark-purple tiles; mascots in the pastel palette
+   (pink, lavender-blue, cream) so the set reads as one family. */
 .avatar-grid button {
-  aspect-ratio: 1; padding: 0; border-radius: 12px;
-  display: grid; place-items: center; font-size: 22px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--surface-2);
+  aspect-ratio: 1; padding: 0; border-radius: 30%;
+  display: grid; place-items: center; cursor: pointer;
+  background: #241f55;
+  border: 1.5px solid rgba(205, 191, 255, 0.14);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, transform 0.2s cubic-bezier(.3,1.6,.5,1);
 }
-.avatar-grid button[aria-checked="true"] { border-color: var(--lav); box-shadow: 0 0 0 2px var(--lav); background: color-mix(in srgb, var(--lav) 18%, transparent); }
+.avatar-grid button:nth-child(3n + 1) { --tint: #ffc3d6; }
+.avatar-grid button:nth-child(3n + 2) { --tint: #b9c2ff; }
+.avatar-grid button:nth-child(3n) { --tint: #ffe6a6; }
+.avatar-grid button:hover { border-color: rgba(205, 191, 255, 0.45); transform: translateY(-1px); }
+.avatar-grid button[aria-checked="true"] {
+  background: #2e2768;
+  border-color: #cdbfff;
+  box-shadow: 0 0 0 1px #cdbfff, 0 0 14px rgba(205, 191, 255, 0.45);
+}
 .color-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .color-row button {
   width: 32px; height: 32px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
@@ -910,27 +922,42 @@ textarea { resize: vertical; width: 100%; }
 :root[data-theme="light"] .self-you { color: #fff; }
 
 /* ---------- space mascots (js/ui/avatars.js) ---------- */
-.space-avatar { display: block; width: 100%; height: 100%; overflow: visible; fill: none; stroke: none; }
-.space-avatar .sp-body { fill: var(--tint); stroke: none; }
-.space-avatar .sp-round { stroke: var(--tint); stroke-width: 4; stroke-linejoin: round; }
-.space-avatar .sp-shade { fill: color-mix(in srgb, var(--tint) 60%, #1d1a45); stroke: none; }
-.space-avatar .sp-light { fill: color-mix(in srgb, var(--tint) 45%, #fff); stroke: none; }
-.space-avatar .sp-line { fill: none; stroke: color-mix(in srgb, var(--tint) 55%, #1d1a45); stroke-linecap: round; }
-.space-avatar .sp-sline { fill: none; stroke: color-mix(in srgb, var(--tint) 60%, #1d1a45); stroke-linecap: round; }
-.space-avatar .sp-lline { fill: none; stroke: color-mix(in srgb, var(--tint) 45%, #fff); stroke-linecap: round; }
-.space-avatar .sp-rays path { fill: none; stroke: color-mix(in srgb, var(--tint) 70%, #1d1a45); stroke-width: 3.5; stroke-linecap: round; }
-.space-avatar .sp-glass { fill: rgba(255, 255, 255, 0.3); stroke: color-mix(in srgb, var(--tint) 35%, #fff); stroke-width: 1.5; }
-.space-avatar .sp-visor { fill: #1d1a45; stroke: none; }
-.space-avatar .sp-flame { fill: #ffb48a; stroke: none; }
-.space-avatar .sp-eye { fill: #1d1a45; stroke: none; }
+/* Sticker style: every filled piece gets the same thick dark-purple outline. */
+.space-avatar {
+  --sp-outline: #2b2363;
+  --sp-cream: #ffeec2;
+  --sp-pink: #ffc3d6;
+  --sp-lav: #cdbfff;
+  display: block; width: 100%; height: 100%; overflow: visible; fill: none; stroke: none;
+}
+.space-avatar .sp-body, .space-avatar .sp-light, .space-avatar .sp-cream, .space-avatar .sp-pink,
+.space-avatar .sp-shade, .space-avatar .sp-glass {
+  stroke: var(--sp-outline); stroke-width: 3; stroke-linejoin: round;
+}
+.space-avatar .sp-body { fill: var(--tint); }
+.space-avatar .sp-light { fill: var(--sp-lav); }
+.space-avatar .sp-cream { fill: var(--sp-cream); }
+.space-avatar .sp-pink { fill: var(--sp-pink); }
+.space-avatar .sp-shade { fill: color-mix(in srgb, var(--tint) 55%, var(--sp-outline)); }
+.space-avatar .sp-glass { fill: color-mix(in srgb, var(--sp-lav) 45%, #fff); }
+.space-avatar .sp-dot { stroke: none; }
+.space-avatar .sp-dot-shade { fill: color-mix(in srgb, var(--tint) 62%, var(--sp-outline)); }
+.space-avatar .sp-dot-cream { fill: var(--sp-cream); }
+.space-avatar .sp-ol { fill: none; stroke: var(--sp-outline); stroke-linecap: round; stroke-linejoin: round; }
+.space-avatar .sp-lc { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.space-avatar .sp-lc-light { stroke: var(--sp-lav); }
+.space-avatar .sp-lc-cream { stroke: var(--sp-cream); }
+.space-avatar .sp-visor { fill: var(--sp-outline); stroke: var(--sp-outline); stroke-width: 3; }
+.space-avatar .sp-spark { fill: var(--sp-cream); stroke: none; }
+.space-avatar .sp-eye { fill: var(--sp-outline); stroke: none; }
 .space-avatar .sp-glint { fill: #fff; stroke: none; }
-.space-avatar .sp-mouth { fill: none; stroke: #1d1a45; stroke-linecap: round; }
-.space-avatar .sp-cheek { fill: #ff7aa8; opacity: 0.55; stroke: none; }
+.space-avatar .sp-mouth { fill: none; stroke: var(--sp-outline); stroke-linecap: round; }
+.space-avatar .sp-cheek { fill: #ff8fb5; opacity: 0.6; stroke: none; }
 .space-avatar .sp-face-light .sp-eye { fill: #fff; }
+.space-avatar .sp-face-light .sp-glint { fill: var(--sp-outline); }
 .space-avatar .sp-face-light .sp-mouth { stroke: #fff; }
-/* day theme colours are darker; lighten the body so the face stays readable */
+/* day theme colours are darker; lighten bodies so the face stays readable */
 :root[data-theme="light"] .space-avatar .sp-body { fill: color-mix(in srgb, var(--tint) 55%, #fff); }
-:root[data-theme="light"] .space-avatar .sp-round { stroke: color-mix(in srgb, var(--tint) 55%, #fff); }
 
 .node-avatar { display: block; width: 46px; height: 46px; font-size: 0; }
 .self-avatar { display: block; width: 72%; height: 72%; font-size: 0; }
@@ -938,7 +965,7 @@ textarea { resize: vertical; width: 100%; }
 .me-avatar .space-avatar { width: 28px; height: 28px; }
 .profile-avatar { display: block; width: 64px; height: 64px; font-size: 0; }
 
-.avatar-grid button .space-avatar { width: 78%; height: 78%; }
+.avatar-grid button .space-avatar { width: 84%; height: 84%; }
 .pair-name .space-avatar { display: inline-block; width: 22px; height: 22px; vertical-align: -6px; }
 
 /* first-run "this is you" bubble under your own mascot */

@@ -1094,7 +1094,6 @@ function openProfile() {
   const preview = () => {
     $('#profile-avatar').innerHTML = avatarSvg(draft.avatar)
     $('#profile-preview').dataset.color = String(draft.color)
-    $('#profile-avatars').dataset.color = String(draft.color) // picker previews your colour
     for (const b of $('#profile-avatars').children) mark(b, b.dataset.avatar === draft.avatar)
     for (const b of $('#profile-colors').children) mark(b, Number(b.dataset.color) === draft.color)
     for (const b of $('#profile-theme').children) mark(b, b.dataset.themeValue === draft.theme)
