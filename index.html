@@ -7,6 +7,7 @@
   <meta name="description" content="Share files and text between devices on the same network. Peer-to-peer, nothing is uploaded.">
   <meta name="theme-color" content="#151634">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -31,6 +32,10 @@
       </div>
     </div>
     <div class="actions">
+      <button id="btn-install" class="icon-btn install" type="button" data-i18n-title="install" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+        <span data-i18n="install"></span>
+      </button>
       <button id="btn-room" class="chip" type="button">
         <span class="dot" id="mode-dot" aria-hidden="true"></span>
         <span id="mode-label"></span>
@@ -77,14 +82,30 @@
             </div>
           </div>
           <p class="panel-state" id="panel-state"><span class="state-dot" aria-hidden="true"></span><span id="panel-state-text"></span></p>
+          <div class="verify">
+            <span class="verify-label" data-i18n="verifyLabel"></span>
+            <span class="verify-code" id="panel-code"></span>
+          </div>
+          <p class="panel-hint verify-hint" data-i18n="verifyHint"></p>
           <button id="panel-send-files" class="btn primary wide" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
             <span data-i18n="sendFiles"></span>
+          </button>
+          <button id="panel-cancel" class="btn wide danger" type="button" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            <span data-i18n="cancelTransfer"></span>
           </button>
           <button id="panel-send-text" class="btn ghost wide" type="button">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg>
             <span data-i18n="sendText"></span>
           </button>
+          <div class="panel-pair">
+            <span class="paired-tag" id="panel-paired" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg>
+              <span data-i18n="pairedBadge"></span>
+            </span>
+            <button id="panel-pair" class="link-btn" type="button"></button>
+          </div>
           <p class="panel-hint" data-i18n="dropHint"></p>
         </div>
 
@@ -178,7 +199,29 @@
           <button type="button" class="btn" id="room-join" data-i18n="joinRoom"></button>
         </div>
       </div>
+      <div class="pairs">
+        <h4 data-i18n="pairsTitle"></h4>
+        <ul class="pair-list" id="pair-list"></ul>
+        <p class="muted small" id="pairs-empty" data-i18n="pairsEmpty"></p>
+      </div>
       <div class="row end"><button class="btn ghost" value="close" data-i18n="close"></button></div>
+    </form>
+  </dialog>
+
+  <!-- Pairing request -->
+  <dialog id="dlg-pair">
+    <form method="dialog" class="sheet">
+      <h3 id="pair-title"></h3>
+      <p class="muted" data-i18n="pairBody"></p>
+      <p class="small" data-i18n="pairCheck"></p>
+      <div class="verify big">
+        <span class="verify-label" data-i18n="verifyLabel"></span>
+        <span class="verify-code" id="pair-code"></span>
+      </div>
+      <div class="row end">
+        <button class="btn ghost" value="no" data-i18n="decline"></button>
+        <button class="btn primary" value="yes" data-i18n="pairAccept"></button>
+      </div>
     </form>
   </dialog>
 
@@ -187,6 +230,10 @@
     <form method="dialog" class="sheet">
       <h3 id="offer-title"></h3>
       <p class="muted" id="offer-summary"></p>
+      <div class="verify" id="offer-verify" hidden>
+        <span class="verify-label" data-i18n="verifyLabel"></span>
+        <span class="verify-code" id="offer-code"></span>
+      </div>
       <ul class="file-list" id="offer-files"></ul>
       <div class="row end">
         <button class="btn ghost" value="no" data-i18n="decline"></button>

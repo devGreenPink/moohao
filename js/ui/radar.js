@@ -9,6 +9,7 @@ const BADGES = {
   done: ICONS.check,
   declined: ICONS.alert,
   failed: ICONS.alert,
+  cancelled: ICONS.close,
 }
 
 /**
@@ -41,10 +42,10 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
 
   function refreshLabel(id) {
     const node = nodes.get(id)
-    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status))
+    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.paired))
   }
 
-  function upsert(id, info) {
+  function upsert(id, info, {paired = false} = {}) {
     let node = nodes.get(id)
     if (!node) {
       const el = document.createElement('button')
@@ -59,6 +60,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
           </svg>
           <span class="node-mascot"></span>
           <span class="node-badge" aria-hidden="true"></span>
+          <span class="node-pair" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg></span>
         </span>
         <span class="node-name"></span>
         <span class="node-status" aria-hidden="true"></span>`
@@ -86,6 +88,8 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
       layout()
     }
     node.info = info
+    node.paired = paired
+    node.el.classList.toggle('is-paired', paired)
     node.el.dataset.device = info.device
     node.el.querySelector('.node-mascot').innerHTML = mascot(info.device)
     node.el.querySelector('.node-name').textContent = info.name
@@ -120,7 +124,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     const {el} = node
     const kind = status.kind
     el.dataset.status = kind
-    const showRing = kind !== 'idle' && kind !== 'declined' && kind !== 'failed'
+    const showRing = kind !== 'idle' && kind !== 'declined' && kind !== 'failed' && kind !== 'cancelled'
     el.classList.toggle('is-busy', showRing)
     const fraction = Math.min(1, Math.max(0, status.fraction || 0))
     el.querySelector('.bar').setAttribute('stroke-dashoffset', String(RING * (1 - (showRing ? fraction : 0))))

@@ -326,7 +326,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .node-status { font-size: 11.5px; line-height: 1.2; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .node-status:empty { display: none; }
 .node[data-status="done"] .node-status { color: var(--mint); }
-.node[data-status="failed"] .node-status, .node[data-status="declined"] .node-status { color: var(--warn); }
+.node[data-status="failed"] .node-status, .node[data-status="declined"] .node-status, .node[data-status="cancelled"] .node-status { color: var(--warn); }
 
 .node-ring { position: absolute; inset: -6px; width: calc(100% + 12px); height: calc(100% + 12px); transform: rotate(-90deg); pointer-events: none; }
 .node-ring circle { fill: none; stroke-width: 4; }
@@ -344,7 +344,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 }
 .node-badge svg { width: 14px; height: 14px; stroke-width: 2.4; }
 .node:not([data-status="idle"]) .node-badge:not(:empty) { display: grid; }
-.node[data-status="failed"] .node-badge, .node[data-status="declined"] .node-badge { color: var(--warn); box-shadow: 0 0 0 1.5px var(--warn); }
+.node[data-status="failed"] .node-badge, .node[data-status="declined"] .node-badge, .node[data-status="cancelled"] .node-badge { color: var(--warn); box-shadow: 0 0 0 1.5px var(--warn); }
 .node[data-status="done"] .node-badge { color: var(--mint); box-shadow: 0 0 0 1.5px var(--mint); }
 
 /* ---------- mascot drawing ---------- */
@@ -388,13 +388,52 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .panel-state[data-state="sending"] .state-dot,
 .panel-state[data-state="receiving"] .state-dot { background: var(--sky); box-shadow: 0 0 10px var(--sky); animation: blink 1s ease-in-out infinite; }
 .panel-state[data-state="failed"] .state-dot,
-.panel-state[data-state="declined"] .state-dot { background: var(--warn); box-shadow: none; border-radius: 2px; }
+.panel-state[data-state="declined"] .state-dot,
+.panel-state[data-state="cancelled"] .state-dot { background: var(--warn); box-shadow: none; border-radius: 2px; }
 @keyframes blink { 50% { opacity: 0.35; } }
 .panel-hint { margin: -4px 0 0; font-size: 12.5px; color: var(--muted); text-align: center; }
 .help-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 14px; }
 .help-list li::marker { color: var(--lav); font-weight: 600; }
 .muted { color: var(--muted); margin: 0; }
 .small { font-size: 13px; }
+
+/* safety code */
+.verify {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; border-radius: 16px;
+  background: var(--surface-2); border: 1px dashed var(--ring-strong);
+}
+.verify-label { font-size: 13px; color: var(--muted); }
+.verify-code { font-size: 22px; letter-spacing: 0.12em; line-height: 1; white-space: nowrap; }
+.verify.big { justify-content: center; flex-direction: column; gap: 6px; padding: 14px; }
+.verify.big .verify-code { font-size: 34px; }
+.verify-hint { margin-top: -8px; }
+
+.panel-pair { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.paired-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px;
+  font-size: 13px; font-weight: 500; color: var(--peach);
+  border: 1px solid color-mix(in srgb, var(--peach) 50%, transparent);
+}
+.paired-tag svg { width: 15px; height: 15px; fill: currentColor; stroke: none; }
+.link-btn {
+  border: 0; background: none; padding: 6px 4px; cursor: pointer;
+  font-size: 13.5px; color: var(--sky);
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.link-btn:hover { color: var(--text); }
+
+/* paired heart on radar nodes: a shape cue, not just colour */
+.node-pair {
+  position: absolute; left: -6px; top: -4px;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: none; place-items: center;
+  background: var(--surface-solid); color: var(--peach);
+  box-shadow: 0 0 0 1.5px var(--peach);
+}
+.node-pair svg { width: 12px; height: 12px; fill: currentColor; stroke: none; }
+.node.is-paired .node-pair { display: grid; }
 
 /* ---------- scan bar ---------- */
 .scan {
@@ -476,6 +515,30 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .btn.wide { width: 100%; }
 .btn.small { height: 36px; padding: 0 14px; font-size: 13.5px; border-radius: 12px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+.btn.danger { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, transparent); background: transparent; }
+.btn.danger:hover { border-color: var(--warn); }
+
+.icon-btn.install {
+  gap: 6px; padding: 0 12px; display: inline-flex; align-items: center;
+  color: var(--sky); border-color: color-mix(in srgb, var(--sky) 45%, transparent);
+  font-size: 13.5px; font-weight: 500;
+}
+.icon-btn.install svg { width: 17px; height: 17px; }
+
+/* paired devices list in the room dialog */
+.pairs { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+.pairs h4 { margin: 0; font-size: 15px; font-weight: 500; }
+.pair-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pair-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 8px 8px 12px; border-radius: 14px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.pair-list .pair-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pair-list .pair-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.pair-list .pair-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.pair-list .pair-state.on { color: var(--mint); }
+.pair-list .pair-state.on::before { background: var(--mint); border-color: var(--mint); }
 
 /* ---------- pending bar / overlay / toasts ---------- */
 .pending-bar {
@@ -592,6 +655,11 @@ textarea { resize: vertical; width: 100%; }
   .scan-track { order: 5; flex-basis: 100%; }
   #scan-room { order: 6; flex-basis: 100%; }
   .pending-bar { top: 72px; }
+}
+
+@media (max-width: 520px) {
+  .icon-btn.install span { display: none; }
+  .icon-btn.install { padding: 0 9px; }
 }
 
 @media (max-width: 400px) {
