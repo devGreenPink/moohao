@@ -49,7 +49,8 @@ export function noteSeen(info) {
   const now = Date.now()
   const rec = all[info.deviceId] || (all[info.deviceId] = {firstSeen: now, sent: 0, received: 0})
   // Remember when it was last seen *before* this visit, for "last connected 2 days ago".
-  if (rec.lastSeen && rec.lastSeen < sessionStart && !rec.prevSeen) rec.prevSeen = rec.lastSeen
+  // (Only the first sighting in a visit has lastSeen from before it.)
+  if (rec.lastSeen && rec.lastSeen < sessionStart) rec.prevSeen = rec.lastSeen
   rec.lastSeen = now
   rec.name = info.name
   rec.avatar = info.avatar

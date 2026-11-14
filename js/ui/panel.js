@@ -82,7 +82,9 @@ export function createPanel(root, {onSendFiles, onSendText, onPair, onUnpair, on
       const line = $('#panel-state')
       const shown = view.offline ? 'reconnecting' : state === 'idle' || state === 'done' || TERMINAL.has(state) ? 'idle' : state
       line.dataset.state = shown
-      $('#panel-state-text').textContent = view.offline ? t('reconnecting') : shown === 'idle' ? t('connected') : status.text
+      // Just the state here ("Sending", "Reconnecting…"); numbers live in the transfer card,
+      // so this line doesn't need re-rendering on every progress tick.
+      $('#panel-state-text').textContent = view.offline ? t('reconnecting') : shown === 'idle' ? t('connected') : t(shown)
 
       // Can't start something new with a device that's currently disconnected.
       $('#panel-send-files').disabled = !!view.offline

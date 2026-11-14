@@ -1,4 +1,4 @@
-import {t} from '../i18n.js'
+import {t, lang} from '../i18n.js'
 import {ICONS} from './mascot.js'
 
 /**
@@ -67,7 +67,7 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
       <div class="xfer-head">
         <span class="xfer-dir" aria-hidden="true"></span>
         <span class="xfer-title"></span>
-        <button type="button" class="xfer-x icon-btn" title="${t('cancelTransfer')}" aria-label="${t('cancelTransfer')}">${ICONS.close}</button>
+        <button type="button" class="xfer-x icon-btn">${ICONS.close}</button>
       </div>
       <div class="xfer-file">
         <span class="xfer-thumb" aria-hidden="true"></span>
@@ -76,7 +76,7 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
       </div>
       <div class="xfer-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
       <div class="xfer-meta"><span class="xfer-pct"></span><span class="xfer-rate"></span></div>
-      <button type="button" class="btn small xfer-open" hidden>${t('viewFiles')}</button>`
+      <button type="button" class="btn small xfer-open" hidden></button>`
     const parts = {
       dir: el.querySelector('.xfer-dir'),
       title: el.querySelector('.xfer-title'),
@@ -99,7 +99,7 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
       onOpen?.(vm.tid)
     })
     if (onSelect) el.addEventListener('click', () => onSelect(vm.peerId))
-    const card = {el, parts, lastFile: -1, lastStatus: null}
+    const card = {el, parts, lastFile: -1, lastStatus: null, lang: null}
     cards.set(vm.tid, card)
     return card
   }
@@ -107,6 +107,14 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
   function update(card, vm) {
     const {el, parts} = card
     const active = ACTIVE.has(vm.status)
+    if (card.lang !== lang) {
+      // (re)apply translated labels, e.g. after the user switches language mid-transfer
+      card.lang = lang
+      parts.x.title = t('cancelTransfer')
+      parts.x.setAttribute('aria-label', t('cancelTransfer'))
+      parts.open.textContent = t('viewFiles')
+      card.lastFile = -1 // refresh "File 2 of 3"
+    }
     if (card.lastStatus !== vm.status) {
       card.lastStatus = vm.status
       el.dataset.status = vm.status

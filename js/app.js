@@ -12,7 +12,7 @@ import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
 import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
-import {createTransferList, fmtSize, fmtTime} from './ui/transfers.js'
+import {createTransferList, fmtSize} from './ui/transfers.js'
 import {createSky} from './ui/sky.js'
 
 const $ = sel => document.querySelector(sel)
@@ -114,10 +114,11 @@ async function copyText(text) {
   }
 }
 
+const relativeFormats = {}
 function relativeTime(ts) {
   const diff = (ts - Date.now()) / 1000
   const units = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]]
-  const fmt = new Intl.RelativeTimeFormat(lang, {numeric: 'auto'})
+  const fmt = (relativeFormats[lang] ??= new Intl.RelativeTimeFormat(lang, {numeric: 'auto'}))
   for (const [unit, secs] of units) {
     if (Math.abs(diff) >= secs) return fmt.format(Math.round(diff / secs), unit)
   }
@@ -554,6 +555,10 @@ function viewModel(x) {
   }
 }
 
+/** Radar and panel side by side (matches the 1080px breakpoint in style.css). */
+const sideBySide = matchMedia('(min-width: 1081px)')
+sideBySide.addEventListener('change', () => scheduleTransferRender())
+
 // Progress can arrive from several transfers at once; draw at most once per frame.
 let transferFrame = 0
 function scheduleTransferRender() {
@@ -567,15 +572,25 @@ function scheduleTransferRender() {
 function renderTransfers() {
   const now = Date.now()
   const list = [...state.xfers.values()].sort((a, b) => (isActive(b) - isActive(a)) || b.finishedAt - a.finishedAt)
-  trayList.render(list.filter(x => isActive(x) || now - x.finishedAt < TRAY_LINGER_MS).map(viewModel))
   const sel = radar.selected
+  // On wide screens the side panel is always in view, so the tray skips what it already shows.
+  const panelShows = sel && sideBySide.matches
+  trayList.render(list
+    .filter(x => (isActive(x) || now - x.finishedAt < TRAY_LINGER_MS) && !(panelShows && x.peerId === sel))
+    .map(viewModel))
   const inPanel = sel ? list.filter(x => x.peerId === sel && (isActive(x) || now - x.finishedAt < PANEL_LINGER_MS)) : []
   panelList.render(inPanel.map(viewModel))
   // particle beams on the radar for transfers that are moving bytes
   const beams = new Map()
   for (const x of list) if (x.status === 'active') beams.set(x.peerId, x.dir)
   for (const id of state.peers.keys()) radar.setBeam(id, beams.get(id) || null)
-  renderPanel()
+  // The panel itself only needs redrawing when its Transfers section appears or goes away;
+  // progress lives in the cards, which update themselves.
+  const key = `${sel}|${inPanel.length > 0}`
+  if (state.panelXferKey !== key) {
+    state.panelXferKey = key
+    renderPanel()
+  }
 }
 
 // Keep the screen on while files are moving: phones suspend or throttle pages when the
@@ -1038,12 +1053,17 @@ function openProfile({welcome = false} = {}) {
   const nameInput = $('#profile-name')
   nameInput.value = me.name
 
+  // Radio groups: only the chosen option is a tab stop (arrow keys move within the group).
+  const mark = (b, on) => {
+    b.setAttribute('aria-checked', String(on))
+    b.tabIndex = on ? 0 : -1
+  }
   const preview = () => {
     $('#profile-avatar').textContent = draft.avatar
     $('#profile-preview').dataset.color = String(draft.color)
-    for (const b of $('#profile-avatars').children) b.setAttribute('aria-checked', String(b.textContent === draft.avatar))
-    for (const b of $('#profile-colors').children) b.setAttribute('aria-checked', String(Number(b.dataset.color) === draft.color))
-    for (const b of $('#profile-theme').children) b.setAttribute('aria-checked', String(b.dataset.themeValue === draft.theme))
+    for (const b of $('#profile-avatars').children) mark(b, b.textContent === draft.avatar)
+    for (const b of $('#profile-colors').children) mark(b, Number(b.dataset.color) === draft.color)
+    for (const b of $('#profile-theme').children) mark(b, b.dataset.themeValue === draft.theme)
   }
 
   $('#profile-avatars').replaceChildren(...AVATARS.map(a => {
@@ -1091,6 +1111,21 @@ function openProfile({welcome = false} = {}) {
 
 $('#self').addEventListener('click', () => openProfile())
 $('#me-card').addEventListener('click', () => openProfile())
+
+// Arrow keys pick the previous/next option in the profile's radio groups.
+for (const group of ['#profile-avatars', '#profile-colors', '#profile-theme']) {
+  $(group).addEventListener('keydown', e => {
+    const step = {ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1}[e.key]
+    if (!step) return
+    const items = [...e.currentTarget.children]
+    const i = items.indexOf(document.activeElement)
+    if (i < 0) return
+    e.preventDefault()
+    const next = items[(i + step + items.length) % items.length]
+    next.click()
+    next.focus()
+  })
+}
 
 // ---------- pairing ----------
 
