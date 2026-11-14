@@ -175,12 +175,16 @@ const state = {
   mode: 'local', // 'local' | 'room' | 'offline' (network lookup failed)
   code: null,
   netRoom: undefined,
-  // peerId -> {info, links: Map(key -> session), busy, status, clearTimer, transfer, code}
+  // peerId -> {info, links: Map(key -> session), busy, status, clearTimer, transfers: Map(tid -> session), code, codePromise}
   peers: new Map(),
   pending: null, // {kind: 'files', files, shared?} | {kind: 'text', text, shared?}
   targetPeer: null,
   incoming: new Map(), // tid -> {start, total, sink, peerId}
+  withdrawn: new Set(), // offers the sender cancelled before we answered
   offerPeer: null,
+  offerTid: null,
+  lastScanKind: 'searching',
+  lastNetCheck: 0,
   searchStart: Date.now(),
   searchTimer: 0,
   retryTimer: 0,
@@ -265,22 +269,33 @@ function refresh() {
   else kind = Date.now() - state.searchStart < SEARCH_GRACE_MS ? 'searching' : 'none'
 
   scan.set({kind, count, mode: state.mode, code: state.code && displayCode(state.code, lang), message: error})
+  renderPanel(kind, error)
+}
 
+/**
+ * Just the side panel. Transfer progress calls this (several times a second) instead of
+ * refresh(), so the scan bar and other UI aren't rebuilt on every tick.
+ */
+function renderPanel(kind = state.lastScanKind, error = null) {
+  state.lastScanKind = kind
   const sel = radar.selected
   if (sel && state.peers.has(sel)) {
     const p = state.peers.get(sel)
     if (p.code === undefined) loadCode(sel)
     panel.render({
       kind: 'peer', id: sel, info: p.info, status: p.status,
-      code: p.code, paired: !!pairFor(sel), canCancel: !!p.transfer,
+      code: p.code, paired: !!pairFor(sel), canCancel: p.transfers.size > 0,
     })
   } else if (kind === 'error') {
-    panel.render({kind: 'error', message: error})
+    panel.render({kind: 'error', message: error ?? currentError()})
   } else if (kind === 'found') {
     panel.render({kind: 'pick'})
   } else {
     panel.render({kind})
   }
+}
+
+function refreshPairListIfOpen() {
   if ($('#dlg-room').open) renderPairList()
 }
 
@@ -317,7 +332,7 @@ function renderMe() {
 function linkPeer(id, key, session, info) {
   let p = state.peers.get(id)
   if (!p) {
-    p = {info, links: new Map(), busy: false, status: {kind: 'idle'}, clearTimer: 0, transfer: null, code: undefined}
+    p = {info, links: new Map(), busy: false, status: {kind: 'idle'}, clearTimer: 0, transfers: new Map(), code: undefined, codePromise: null}
     state.peers.set(id, p)
   }
   p.info = info
@@ -326,6 +341,7 @@ function linkPeer(id, key, session, info) {
   if (key.startsWith('pair:')) touchPair(key.slice(5), info)
   radar.upsert(id, info, {paired: !!pairFor(id)})
   refresh()
+  refreshPairListIfOpen()
 }
 
 function unlinkPeer(id, key) {
@@ -333,8 +349,11 @@ function unlinkPeer(id, key) {
   if (!p) return
   p.links.delete(key)
   if (p.links.size) {
-    p.code = undefined // the connection used for the safety code may have changed
+    // the connection used for the safety code may have changed
+    p.code = undefined
+    p.codePromise = null
     refresh()
+    refreshPairListIfOpen()
     return
   }
   clearTimeout(p.clearTimer)
@@ -343,11 +362,13 @@ function unlinkPeer(id, key) {
   if (state.offerPeer === id && $('#dlg-offer').open) $('#dlg-offer').close('no')
   if (!state.peers.size) restartSearchClock()
   refresh()
+  refreshPairListIfOpen()
 }
 
 function refreshPairFlags() {
   for (const [id, p] of state.peers) radar.upsert(id, p.info, {paired: !!pairFor(id)})
   refresh()
+  refreshPairListIfOpen()
 }
 
 function selectPeer(id) {
@@ -369,17 +390,20 @@ function onNodeActivate(id) {
   selectPeer(id)
 }
 
-async function loadCode(id) {
+/** Compute (once) and cache the safety code for a peer. */
+function loadCode(id) {
   const p = state.peers.get(id)
-  if (!p || p.code !== undefined) return p?.code ?? null
-  p.code = undefined
-  const code = await sessionFor(id)?.verificationCode(id).catch(() => null)
-  const now = state.peers.get(id)
-  if (now) {
-    now.code = code ?? null
-    if (radar.selected === id) refresh()
-  }
-  return code ?? null
+  if (!p) return Promise.resolve(null)
+  if (p.code !== undefined) return Promise.resolve(p.code)
+  p.codePromise ??= (async () => {
+    const code = (await sessionFor(id)?.verificationCode(id).catch(() => null)) ?? null
+    if (state.peers.get(id) === p && p.codePromise) {
+      p.code = code
+      if (radar.selected === id) renderPanel()
+    }
+    return code
+  })()
+  return p.codePromise
 }
 
 const TERMINAL = new Set(['done', 'declined', 'failed', 'cancelled'])
@@ -400,7 +424,7 @@ function setPeerStatus(id, kind, {fraction = 0, speed = 0, eta = 0} = {}) {
 
   p.status = {kind, fraction, text, detail: detail || text}
   radar.setStatus(id, p.status)
-  if (radar.selected === id) refresh()
+  if (radar.selected === id) renderPanel()
 
   if (TERMINAL.has(kind)) {
     announce(`${p.info.name}: ${text}`)
@@ -460,6 +484,7 @@ async function sendFiles(id, files) {
   if (p.busy) return toast(t('busy'))
   p.busy = true
   let start = 0
+  let myTid = null
   try {
     const thumbs = await Promise.all(files.map((f, i) => (i < 8 ? makeThumb(f) : null)))
     await session.sendFiles(id, files, thumbs,
@@ -476,19 +501,22 @@ async function sendFiles(id, files) {
         }
       },
       tid => {
-        p.transfer = {tid, session}
-        refresh()
+        myTid = tid
+        p.transfers.set(tid, session)
+        renderPanel()
       })
   } finally {
     p.busy = false
-    p.transfer = null
-    refresh()
+    if (myTid) p.transfers.delete(myTid)
+    renderPanel()
   }
 }
 
+/** Cancel every transfer (sending or receiving) currently running with this peer. */
 function cancelTransfer(id) {
   const p = state.peers.get(id)
-  if (p?.transfer) p.transfer.session.cancel(p.transfer.tid)
+  if (!p) return
+  for (const [tid, session] of p.transfers) session.cancel(tid)
 }
 
 async function sendText(id, text) {
@@ -600,7 +628,7 @@ async function chooseSink(files, total) {
 function askOffer(peerId, data, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
-    if (signal?.aborted || !peer) return resolve(null)
+    if (signal?.aborted || !peer || state.withdrawn.has(data.tid)) return resolve(null)
     const total = data.files.reduce((s, f) => s + f.size, 0)
     $('#offer-title').textContent = t('incomingTitle', {name: peer.info.name})
     $('#offer-summary').textContent = t('filesCount', {n: data.files.length, size: fmtSize(total)})
@@ -616,6 +644,7 @@ function askOffer(peerId, data, signal, session) {
     const tag = `offer-${data.tid}`
     state.offerPeer = peerId
     state.offerTag = tag
+    state.offerTid = data.tid
     chime()
     flagTitle()
     alertUser({
@@ -627,26 +656,40 @@ function askOffer(peerId, data, signal, session) {
     const answer = await showDialog(dlg)
     state.offerPeer = null
     state.offerTag = null
+    state.offerTid = null
     closeNotification(tag)
     clearTimeout(timer)
     signal?.removeEventListener('abort', abort)
 
-    if (answer !== 'yes' || signal?.aborted || !state.peers.has(peerId)) return resolve(null)
+    const gone = () => signal?.aborted || !state.peers.has(peerId) || state.withdrawn.has(data.tid)
+    if (answer !== 'yes' || gone()) return resolve(null)
     const sink = await chooseSink(data.files, total)
     if (!sink) return resolve(null)
+    if (gone()) {
+      sink.abort()
+      return resolve(null)
+    }
     state.incoming.set(data.tid, {start: performance.now(), total, sink, peerId, count: data.files.length, files: data.files})
     const p = state.peers.get(peerId)
-    if (p) p.transfer = {tid: data.tid, session}
+    if (p) p.transfers.set(data.tid, session)
     setPeerStatus(peerId, 'receiving', {fraction: 0})
     resolve(sink)
   }))
+}
+
+/** The sender withdrew an offer we haven't answered yet: close or skip its dialog. */
+function onOfferCancelled(peerId, tid) {
+  if (state.withdrawn.size > 200) state.withdrawn.clear()
+  state.withdrawn.add(tid)
+  if (state.offerTid === tid && $('#dlg-offer').open) $('#dlg-offer').close('no')
+  closeNotification(`offer-${tid}`)
 }
 
 function onIncomingDone(peerId, tid) {
   const inc = state.incoming.get(tid)
   state.incoming.delete(tid)
   const p = state.peers.get(peerId)
-  if (p) p.transfer = null
+  if (p) p.transfers.delete(tid)
   setPeerStatus(peerId, 'done', {fraction: 1})
   if (!inc) return
   const name = p?.info.name || '?'
@@ -659,7 +702,7 @@ function onIncomingDone(peerId, tid) {
 function onIncomingFailed(peerId, tid, reason) {
   state.incoming.delete(tid)
   const p = state.peers.get(peerId)
-  if (p) p.transfer = null
+  if (p) p.transfers.delete(tid)
   setPeerStatus(peerId, reason === 'cancelled' ? 'cancelled' : 'failed')
 }
 
@@ -766,13 +809,26 @@ async function pairWith(id) {
   const secret = randomId(24)
   const res = await session.requestPair(id, secret)
   if (!res.ok) return toast(t('pairDeclined'))
-  const record = await addPair({secret, name: res.name || p.info.name, deviceId: res.deviceId || p.info.deviceId})
+  // Tell the other device we got its "yes" — it saves the pairing only after this.
+  await session.confirmPair(id, secret)
+  await savePairing({secret, name: res.name || p.info.name, deviceId: res.deviceId || p.info.deviceId})
+}
+
+async function savePairing(request, {vibrate = true} = {}) {
+  const record = await addPair(request)
   await ensurePairSession(record)
   toast(t('pairDone', {name: record.name}))
-  alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`})
+  alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`, vibrate})
   refreshPairFlags()
 }
 
+/** The requester confirmed it received our acceptance; now both sides store the pairing. */
+function onPairConfirmed(peerId, request) {
+  const peer = state.peers.get(peerId)
+  savePairing({secret: request.secret, name: request.name || peer?.info.name, deviceId: request.deviceId || peer?.info.deviceId}, {vibrate: false})
+}
+
+/** Ask the user; the pairing itself is saved later in onPairConfirmed. */
 function askPair(peerId, request, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
@@ -783,6 +839,8 @@ function askPair(peerId, request, signal, session) {
     const dlg = $('#dlg-pair')
     const abort = () => dlg.open && dlg.close('no')
     signal?.addEventListener('abort', abort, {once: true})
+    // Answer well before the requester's 2-minute timeout so a late "yes" can't be lost.
+    const timer = setTimeout(abort, 100 * 1000)
     chime()
     flagTitle()
     const tag = `pairreq-${peerId}`
@@ -792,15 +850,10 @@ function askPair(peerId, request, signal, session) {
       tag,
     })
     const answer = await showDialog(dlg)
+    clearTimeout(timer)
     closeNotification(tag)
     signal?.removeEventListener('abort', abort)
-    if (answer !== 'yes' || signal?.aborted) return resolve(false)
-    const record = await addPair({secret: request.secret, name: request.name || peer.info.name, deviceId: request.deviceId || peer.info.deviceId})
-    await ensurePairSession(record)
-    toast(t('pairDone', {name: record.name}))
-    alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`, vibrate: false})
-    refreshPairFlags()
-    resolve(true)
+    resolve(answer === 'yes' && !signal?.aborted)
   }))
 }
 
@@ -863,10 +916,12 @@ function makeHandlers(key) {
       const inc = state.incoming.get(tid)
       if (inc) setProgress(id, 'receiving', received, total, inc.start)
     },
+    onOfferCancelled,
     onIncomingDone,
     onIncomingFailed,
     onText: showMessage,
     onPairRequest: (id, request, signal) => askPair(id, request, signal, self()),
+    onPairConfirmed,
     onUnpair: onRemoteUnpair,
     onError: msg => {
       if (key !== 'main') return
@@ -929,7 +984,10 @@ async function enterLocal() {
   if (location.hash) history.replaceState(null, '', location.pathname + location.search)
   state.mode = 'local'
   updateMode()
-  if (!state.netRoom) state.netRoom = await detectNetworkRoom()
+  if (!state.netRoom) {
+    state.lastNetCheck = Date.now()
+    state.netRoom = await detectNetworkRoom()
+  }
   if (state.mode !== 'local' && state.mode !== 'offline') return // switched to a room meanwhile
   if (!state.netRoom) {
     state.mode = 'offline'
@@ -946,6 +1004,36 @@ async function enterLocal() {
   updateMode()
   await switchSession(state.netRoom)
 }
+
+/**
+ * The network can change under us (Wi‑Fi switched, laptop carried to another place).
+ * Look up the public address again and move to the new network's room if it changed.
+ */
+async function recheckNetwork(force = false) {
+  if (state.mode === 'room' || state.checkingNet) return
+  if (!force && Date.now() - state.lastNetCheck < 15_000) return
+  state.checkingNet = true
+  state.lastNetCheck = Date.now()
+  try {
+    const next = await detectNetworkRoom()
+    if (!next || state.mode === 'room') return // keep the current room on a transient failure
+    if (state.mode === 'local' && state.main && next.roomId === state.netRoom?.roomId) return
+    state.netRoom = next
+    state.mode = 'local'
+    updateMode()
+    await switchSession(next)
+  } finally {
+    state.checkingNet = false
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) recheckNetwork()
+})
+navigator.connection?.addEventListener?.('change', () => recheckNetwork(true))
+setInterval(() => {
+  if (!document.hidden) recheckNetwork()
+}, 60_000)
 
 function renderRoomDialog() {
   const inRoom = state.mode === 'room'
@@ -1035,9 +1123,12 @@ window.addEventListener('hashchange', () => {
 
 window.addEventListener('online', () => {
   state.online = true
-  // A failed network lookup may have been caused by being offline; try again.
+  // Coming back online often means a different network; also retries a failed lookup.
   if (state.mode === 'offline') enterLocal()
-  else refresh()
+  else {
+    refresh()
+    recheckNetwork(true)
+  }
 })
 window.addEventListener('offline', () => {
   state.online = false

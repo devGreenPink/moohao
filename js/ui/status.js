@@ -18,13 +18,19 @@ export function createScanStatus(root) {
   const detail = $('#scan-detail')
   const count = $('#scan-count')
   const roomBtn = $('#scan-room')
+  let iconKind = null
 
   return {
     /** {kind, count, mode, code, message} */
     set({kind, count: n = 0, mode, code, message}) {
       bar.dataset.state = kind
       root.dataset.scan = kind
-      icon.innerHTML = kind === 'error' ? ICONS.alert : ICONS.waves
+      // Only swap the icon when it changes, so its wave animation doesn't restart.
+      const wantIcon = kind === 'error' ? 'alert' : 'waves'
+      if (iconKind !== wantIcon) {
+        icon.innerHTML = ICONS[wantIcon]
+        iconKind = wantIcon
+      }
       roomBtn.hidden = kind !== 'error' && kind !== 'none'
 
       const where = mode === 'room' ? t('scanDetailRoom', {code}) : t('scanDetailLocal')

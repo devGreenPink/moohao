@@ -3,7 +3,7 @@
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.1.0'
+const VERSION = 'nearby-v2.2.0'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 
@@ -58,6 +58,12 @@ const downloads = new Map() // id -> {port, name, size, mime}
 
 self.addEventListener('message', event => {
   const data = event.data
+  if (data?.type === 'nearby-keepalive') {
+    // Pinged every 10 s while a streamed download runs; holding the event open until the
+    // next ping stops the browser from shutting this worker down mid-download.
+    event.waitUntil(new Promise(resolve => setTimeout(resolve, 15_000)))
+    return
+  }
   if (data?.type !== 'nearby-dl' || !event.ports[0]) return
   const port = event.ports[0]
   if (typeof data.id !== 'string' || downloads.size > 50) {
@@ -134,9 +140,32 @@ self.addEventListener('notificationclick', event => {
 
 // ---------- fetch ----------
 
+const FONT_CACHE = 'nearby-fonts'
+const FONT_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com'])
+
+/** Fonts: serve the saved copy immediately (works offline), refresh it in the background. */
+async function fontResponse(event) {
+  const cache = await caches.open(FONT_CACHE)
+  const cached = await cache.match(event.request)
+  const update = fetch(event.request)
+    .then(res => {
+      if (res.ok || res.type === 'opaque') cache.put(event.request, res.clone()).catch(() => {})
+      return res
+    })
+  if (cached) {
+    event.waitUntil(update.catch(() => {}))
+    return cached
+  }
+  return update
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request
   const url = new URL(req.url)
+  if (req.method === 'GET' && FONT_HOSTS.has(url.hostname)) {
+    event.respondWith(fontResponse(event))
+    return
+  }
   if (url.origin !== self.location.origin || !req.url.startsWith(self.registration.scope)) return
 
   const path = url.pathname.slice(new URL(self.registration.scope).pathname.length)

@@ -41,7 +41,10 @@ export function safeFileName(name) {
 
 export function memorySink(files) {
   const parts = files.map(() => [])
-  const co = files.map((_, i) => coalescer(b => { parts[i]?.push(b) }))
+  // Wrap each 1 MB piece in a Blob straight away: blob data lives in the browser's blob
+  // store (which can spill to disk), not the JS heap, so a big receive doesn't balloon
+  // the page's memory and the final Blob is assembled without another full copy.
+  const co = files.map((_, i) => coalescer(b => { parts[i]?.push(new Blob([b])) }))
   const results = []
   return {
     kind: 'memory',
@@ -143,7 +146,18 @@ export function downloadUrl(id, name) {
  */
 export function streamSink(files) {
   const opened = []
+  // A service worker that only receives MessagePort traffic can look idle and be stopped
+  // by the browser mid-download; a regular ping (an extendable event) keeps it alive.
+  let keepAlive = 0
+  const startKeepAlive = () => {
+    keepAlive ||= setInterval(() => navigator.serviceWorker.controller?.postMessage({type: 'nearby-keepalive'}), 10_000)
+  }
+  const stopKeepAlive = () => {
+    clearInterval(keepAlive)
+    keepAlive = 0
+  }
   const open = i => (opened[i] ??= (async () => {
+    startKeepAlive()
     const id = randomId(12)
     const name = safeFileName(files[i].name)
     const port = await registerDownload({id, name, size: files[i].size, mime: files[i].type || 'application/octet-stream'})
@@ -169,8 +183,10 @@ export function streamSink(files) {
       entry.port.postMessage('end')
       cleanup(entry)
     },
-    finish: async () => {},
+    // Keep pinging a little longer so the browser finishes writing the last bytes.
+    finish: async () => { setTimeout(stopKeepAlive, 30_000) },
     abort() {
+      stopKeepAlive()
       opened.forEach(p => p?.then(entry => {
         entry.port.postMessage('abort')
         cleanup(entry)

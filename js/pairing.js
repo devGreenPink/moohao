@@ -5,7 +5,10 @@ import {pairIdOf} from './net.js'
 
 const KEY = 'nearby.pairs'
 
-export function loadPairs() {
+// Parsed once and kept in memory; looked up on every render, so don't re-read storage.
+let cache = null
+
+function readStorage() {
   try {
     const list = JSON.parse(localStorage.getItem(KEY) || '[]')
     return Array.isArray(list) ? list.filter(p => p && typeof p.secret === 'string' && typeof p.id === 'string') : []
@@ -14,7 +17,18 @@ export function loadPairs() {
   }
 }
 
+// Another tab of this app changed the pairings.
+window.addEventListener('storage', e => {
+  if (e.key === KEY) cache = null
+})
+
+export function loadPairs() {
+  cache ??= readStorage()
+  return cache
+}
+
 function savePairs(list) {
+  cache = list
   try { localStorage.setItem(KEY, JSON.stringify(list)) } catch {}
 }
 
@@ -43,5 +57,5 @@ export function touchPair(id, {name, deviceId}) {
   let changed = false
   if (name && p.name !== name) { p.name = name; changed = true }
   if (deviceId && !p.deviceId) { p.deviceId = deviceId; changed = true }
-  if (changed) savePairs(list)
+  if (changed) savePairs([...list])
 }
