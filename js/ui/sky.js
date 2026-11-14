@@ -38,10 +38,9 @@ const PALETTES = {
     sparkles: ['#fff4d6', '#ffd1e0', '#d9ccff', '#bff3fa'],
     sparkleGlow: 'rgba(200, 185, 255, 0.9)',
     planet: {
-      glow: 'rgba(150, 120, 255, 0.34)',
-      body: [[0, '#2c2676'], [0.35, '#1d1a52'], [1, '#120f36']],
-      bands: 'rgba(160, 140, 255, 0.08)',
-      rim: 'rgba(205, 190, 255, 0.85)',
+      glow: 'rgba(150, 120, 255, 0.22)',
+      body: [[0, 'rgba(44, 38, 118, 0)'], [0.5, 'rgba(36, 31, 100, 0.75)'], [1, 'rgba(22, 18, 62, 0.9)']],
+      rim: 'rgba(205, 190, 255, 0.4)',
     },
     decor: {outline: 'rgba(16, 14, 48, 0.95)', alpha: 0.85},
   },
@@ -60,10 +59,9 @@ const PALETTES = {
     sparkles: ['#ffffff', '#ffffff', '#6c5ce7', '#f07fa0', '#fff3c4'],
     sparkleGlow: 'rgba(108, 92, 231, 0.55)',
     planet: {
-      glow: 'rgba(255, 150, 170, 0.55)',
-      body: [[0, '#f3c6e4'], [0.3, '#c8b6f5'], [1, '#9d8de6']],
-      bands: 'rgba(255, 255, 255, 0.16)',
-      rim: 'rgba(255, 255, 255, 0.95)',
+      glow: 'rgba(255, 160, 185, 0.38)',
+      body: [[0, 'rgba(240, 200, 232, 0)'], [0.5, 'rgba(214, 192, 245, 0.7)'], [1, 'rgba(178, 160, 238, 0.85)']],
+      rim: 'rgba(255, 255, 255, 0.6)',
     },
     decor: {outline: '#3d3283', alpha: 1},
   },
@@ -239,41 +237,33 @@ export function createSky({canvas, twinkleLayer, shootLayer}) {
     }
     ctx.restore()
 
-    // a planet rising at the bottom edge
-    const R = big * 1.25
-    const show = Math.min(h * 0.15, 140)
+    // A planet just peeking in at the bottom edge: a wide, low curve whose top fades into the
+    // sky and a soft glow instead of an outline, so it reads as depth, not as an object.
+    const R = big * 1.8
+    const show = Math.min(h * 0.08, 72)
     const cx = w * 0.5
     const cy = h + R - show
-    const atmo = ctx.createRadialGradient(cx, cy, R * 0.97, cx, cy, R + Math.max(70, show * 0.9))
+    const top = h - show
+    const atmo = ctx.createRadialGradient(cx, cy, R * 0.985, cx, cy, R + 110)
     atmo.addColorStop(0, p.planet.glow)
     atmo.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.fillStyle = atmo
-    ctx.fillRect(0, h - show - 160, w, show + 160)
-    ctx.save()
+    ctx.fillRect(0, top - 120, w, show + 120)
     ctx.beginPath()
     ctx.arc(cx, cy, R, 0, Math.PI * 2)
-    const body = ctx.createLinearGradient(0, h - show, 0, h)
+    const body = ctx.createLinearGradient(0, top, 0, h)
     for (const [stop, color] of p.planet.body) body.addColorStop(stop, color)
     ctx.fillStyle = body
     ctx.fill()
-    ctx.clip()
-    // soft cloud bands across the surface (each one fades in and out vertically)
-    for (const [dy, th] of [[0.24, 0.1], [0.52, 0.14], [0.8, 0.08]]) {
-      const y = h - show + dy * show
-      const half = th * show + 5
-      const fade = ctx.createLinearGradient(0, y - half, 0, y + half)
-      fade.addColorStop(0, 'rgba(0,0,0,0)')
-      fade.addColorStop(0.5, p.planet.bands)
-      fade.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = fade
-      ctx.fillRect(0, y - half, w, half * 2)
-    }
-    ctx.restore()
+    ctx.save()
     ctx.beginPath()
-    ctx.arc(cx, cy, R, Math.PI * 1.25, Math.PI * 1.75)
-    ctx.lineWidth = 2
+    ctx.arc(cx, cy, R, Math.PI * 1.3, Math.PI * 1.7)
+    ctx.lineWidth = 1.5
     ctx.strokeStyle = p.planet.rim
+    ctx.shadowColor = p.planet.rim
+    ctx.shadowBlur = 10
     ctx.stroke()
+    ctx.restore()
 
     // sticker planets near the edges (wide screens only; on phones the content covers them)
     if (w >= 760) {
