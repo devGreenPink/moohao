@@ -62,6 +62,10 @@ export function createPanel(root, {onSendFiles, onSendText, onCancel, onPair, on
       $('#panel-send-files').hidden = !!view.canCancel
       $('#panel-send-files').disabled = busy
       $('#panel-cancel').hidden = !view.canCancel
+      $('#panel-keepopen').hidden = !view.canCancel
+      // Can't start something new with a device that's currently disconnected.
+      $('#panel-send-text').disabled = !!view.offline
+      $('#panel-pair').disabled = !!view.offline
 
       const codeEl = $('#panel-code')
       const hasCode = view.code !== null

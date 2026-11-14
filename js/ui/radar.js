@@ -10,6 +10,7 @@ const BADGES = {
   declined: ICONS.alert,
   failed: ICONS.alert,
   cancelled: ICONS.close,
+  reconnecting: ICONS.waves,
 }
 
 /**
@@ -45,7 +46,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.paired))
   }
 
-  function upsert(id, info, {paired = false} = {}) {
+  function upsert(id, info, {paired = false, offline = false} = {}) {
     let node = nodes.get(id)
     if (!node) {
       const el = document.createElement('button')
@@ -90,6 +91,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     node.info = info
     node.paired = paired
     node.el.classList.toggle('is-paired', paired)
+    node.el.classList.toggle('is-offline', offline)
     node.el.dataset.device = info.device
     node.el.querySelector('.node-mascot').innerHTML = mascot(info.device)
     node.el.querySelector('.node-name').textContent = info.name

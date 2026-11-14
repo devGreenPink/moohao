@@ -83,7 +83,9 @@ export function onNotificationAction(callback) {
 }
 
 export function buzz(pattern = [70, 50, 70]) {
-  // Chrome refuses (and logs an error) until the user has tapped the page at least once.
+  // Only phones/tablets vibrate, and Chrome refuses (logging an error) until the page has
+  // been tapped — a mouse click on a desktop doesn't count.
+  if (!navigator.maxTouchPoints) return
   if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return
   try { navigator.vibrate?.(pattern) } catch {}
 }

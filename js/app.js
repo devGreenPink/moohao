@@ -175,12 +175,14 @@ const state = {
   mode: 'local', // 'local' | 'room' | 'offline' (network lookup failed)
   code: null,
   netRoom: undefined,
-  // peerId -> {info, links: Map(key -> session), busy, status, clearTimer, transfers: Map(tid -> session), code, codePromise}
+  // peerId -> {info, links: Map(key -> session), status, clearTimer, code, codePromise, offline}
   peers: new Map(),
   pending: null, // {kind: 'files', files, shared?} | {kind: 'text', text, shared?}
   targetPeer: null,
   incoming: new Map(), // tid -> {start, total, sink, peerId}
   withdrawn: new Set(), // offers the sender cancelled before we answered
+  transfers: new Map(), // tid -> {peerId, session, dir}; see addTransfer()
+  sendingTo: new Set(), // peers we're preparing an offer for (thumbnails etc.)
   offerPeer: null,
   offerTid: null,
   lastScanKind: 'searching',
@@ -261,7 +263,7 @@ function currentError() {
 
 /** Recompute the scan bar, hero and side panel from state. */
 function refresh() {
-  const count = state.peers.size
+  const count = onlineCount()
   const error = count ? null : currentError()
   let kind
   if (error) kind = 'error'
@@ -284,7 +286,7 @@ function renderPanel(kind = state.lastScanKind, error = null) {
     if (p.code === undefined) loadCode(sel)
     panel.render({
       kind: 'peer', id: sel, info: p.info, status: p.status,
-      code: p.code, paired: !!pairFor(sel), canCancel: p.transfers.size > 0,
+      code: p.code, paired: !!pairFor(sel), canCancel: transfersWith(sel).length > 0, offline: p.offline,
     })
   } else if (kind === 'error') {
     panel.render({kind: 'error', message: error ?? currentError()})
@@ -332,10 +334,16 @@ function renderMe() {
 function linkPeer(id, key, session, info) {
   let p = state.peers.get(id)
   if (!p) {
-    p = {info, links: new Map(), busy: false, status: {kind: 'idle'}, clearTimer: 0, transfers: new Map(), code: undefined, codePromise: null}
+    p = {info, links: new Map(), status: {kind: 'idle'}, clearTimer: 0, code: undefined, codePromise: null, offline: false}
     state.peers.set(id, p)
   }
   p.info = info
+  if (p.offline) {
+    // back after a drop: new connection, new safety code
+    p.code = undefined
+    p.codePromise = null
+  }
+  p.offline = false
   p.links.set(key, session)
   if (key === 'main') state.joinError = null
   if (key.startsWith('pair:')) touchPair(key.slice(5), info)
@@ -348,28 +356,103 @@ function unlinkPeer(id, key) {
   const p = state.peers.get(id)
   if (!p) return
   p.links.delete(key)
+  // the connection used for the safety code may have changed
+  p.code = undefined
+  p.codePromise = null
   if (p.links.size) {
-    // the connection used for the safety code may have changed
-    p.code = undefined
-    p.codePromise = null
     refresh()
     refreshPairListIfOpen()
     return
   }
+  if (transfersWith(id).length) {
+    // A transfer is waiting for this device to reconnect: keep it on the radar, dimmed.
+    p.offline = true
+    radar.upsert(id, p.info, {paired: !!pairFor(id), offline: true})
+    refresh()
+    return
+  }
+  removePeerNow(id)
+}
+
+function removePeerNow(id) {
+  const p = state.peers.get(id)
+  if (!p) return
   clearTimeout(p.clearTimer)
   state.peers.delete(id)
   radar.remove(id)
   if (state.offerPeer === id && $('#dlg-offer').open) $('#dlg-offer').close('no')
-  if (!state.peers.size) restartSearchClock()
+  if (!onlineCount()) restartSearchClock()
   refresh()
   refreshPairListIfOpen()
 }
 
+function onlineCount() {
+  let n = 0
+  for (const p of state.peers.values()) if (!p.offline) n++
+  return n
+}
+
 function refreshPairFlags() {
-  for (const [id, p] of state.peers) radar.upsert(id, p.info, {paired: !!pairFor(id)})
+  for (const [id, p] of state.peers) radar.upsert(id, p.info, {paired: !!pairFor(id), offline: p.offline})
   refresh()
   refreshPairListIfOpen()
 }
+
+// ---------- active transfers ----------
+
+/** tid -> {peerId, session, dir: 'in' | 'out'}; kept across short disconnects. */
+function transfersWith(id) {
+  return [...state.transfers.entries()].filter(([, x]) => x.peerId === id)
+}
+
+function addTransfer(tid, info) {
+  state.transfers.set(tid, info)
+  if (me.device !== 'desktop' && state.transfers.size === 1) toast(t('keepOpen'), 5000)
+  updateWakeLock()
+  renderPanel()
+}
+
+function removeTransfer(tid) {
+  const info = state.transfers.get(tid)
+  if (!info) return
+  state.transfers.delete(tid)
+  updateWakeLock()
+  // A device kept on the radar only for this transfer can go now.
+  const p = state.peers.get(info.peerId)
+  if (p?.offline && !transfersWith(info.peerId).length) setTimeout(() => {
+    if (state.peers.get(info.peerId)?.offline && !transfersWith(info.peerId).length) removePeerNow(info.peerId)
+  }, 4000)
+  renderPanel()
+}
+
+// Keep the screen on while files are moving: phones suspend or throttle pages when the
+// screen turns off, which stalls or drops the connection.
+let wakeLock = null
+async function updateWakeLock() {
+  const want = state.transfers.size > 0 && document.visibilityState === 'visible'
+  if (want && !wakeLock && 'wakeLock' in navigator) {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen')
+      wakeLock.addEventListener('release', () => { wakeLock = null })
+      if (!state.transfers.size) updateWakeLock()
+    } catch {
+      wakeLock = null
+    }
+  } else if (!state.transfers.size && wakeLock) {
+    const lock = wakeLock
+    wakeLock = null
+    lock.release().catch(() => {})
+  }
+}
+// The browser drops the wake lock whenever the page is hidden; take it back on return.
+document.addEventListener('visibilitychange', updateWakeLock)
+
+// Closing the tab mid-transfer would lose it; ask first.
+window.addEventListener('beforeunload', e => {
+  if (!state.transfers.size) return
+  e.preventDefault()
+  e.returnValue = ''
+})
 
 function selectPeer(id) {
   radar.select(id)
@@ -408,14 +491,17 @@ function loadCode(id) {
 
 const TERMINAL = new Set(['done', 'declined', 'failed', 'cancelled'])
 
-/** kind: idle | waiting | sending | receiving | done | declined | failed | cancelled */
+/** kind: idle | waiting | sending | receiving | reconnecting | done | declined | failed | cancelled */
 function setPeerStatus(id, kind, {fraction = 0, speed = 0, eta = 0} = {}) {
   const p = state.peers.get(id)
   if (!p) return
   clearTimeout(p.clearTimer)
   let text = ''
   let detail = ''
-  if (kind === 'waiting') text = t('waiting')
+  if (kind === 'reconnecting') {
+    fraction = p.status.fraction || 0 // keep the progress ring where it was
+    text = t('reconnecting')
+  } else if (kind === 'waiting') text = t('waiting')
   else if (kind === 'sending' || kind === 'receiving') {
     const pct = Math.floor(fraction * 100)
     text = speed > 0 ? `${pct}% · ${fmtSize(speed)}/s` : `${t(kind)} ${pct}%`
@@ -432,9 +518,10 @@ function setPeerStatus(id, kind, {fraction = 0, speed = 0, eta = 0} = {}) {
   }
 }
 
-function setProgress(id, kind, done, total, start) {
+/** base: bytes already done when `start` was taken (so speed after a resume is accurate). */
+function setProgress(id, kind, done, total, start, base = 0) {
   const secs = (performance.now() - start) / 1000
-  const speed = secs > 0.4 ? done / secs : 0
+  const speed = secs > 0.4 ? (done - base) / secs : 0
   setPeerStatus(id, kind, {
     fraction: total ? done / total : 1,
     speed,
@@ -481,17 +568,22 @@ async function sendFiles(id, files) {
   const p = state.peers.get(id)
   const session = sessionFor(id)
   if (!p || !files.length || !session) return
-  if (p.busy) return toast(t('busy'))
-  p.busy = true
+  if (state.sendingTo.has(id) || transfersWith(id).some(([, x]) => x.dir === 'out')) return toast(t('busy'))
+  state.sendingTo.add(id)
   let start = 0
+  let base = 0
   let myTid = null
   try {
     const thumbs = await Promise.all(files.map((f, i) => (i < 8 ? makeThumb(f) : null)))
     await session.sendFiles(id, files, thumbs,
       (status, sent, total) => {
         if (status === 'sending') {
-          start ||= performance.now()
-          setProgress(id, 'sending', sent, total, start)
+          // restart the speed clock after a reconnect so the rate isn't averaged over the gap
+          if (!start || state.peers.get(id)?.status.kind === 'reconnecting') {
+            start = performance.now()
+            base = sent
+          }
+          setProgress(id, 'sending', sent, total, start, base)
         } else {
           setPeerStatus(id, status)
           const name = p.info.name
@@ -502,21 +594,17 @@ async function sendFiles(id, files) {
       },
       tid => {
         myTid = tid
-        p.transfers.set(tid, session)
-        renderPanel()
+        addTransfer(tid, {peerId: id, session, dir: 'out'})
       })
   } finally {
-    p.busy = false
-    if (myTid) p.transfers.delete(myTid)
-    renderPanel()
+    state.sendingTo.delete(id)
+    if (myTid) removeTransfer(myTid)
   }
 }
 
 /** Cancel every transfer (sending or receiving) currently running with this peer. */
 function cancelTransfer(id) {
-  const p = state.peers.get(id)
-  if (!p) return
-  for (const [tid, session] of p.transfers) session.cancel(tid)
+  for (const [tid, x] of transfersWith(id)) x.session.cancel(tid)
 }
 
 async function sendText(id, text) {
@@ -669,12 +757,30 @@ function askOffer(peerId, data, signal, session) {
       sink.abort()
       return resolve(null)
     }
-    state.incoming.set(data.tid, {start: performance.now(), total, sink, peerId, count: data.files.length, files: data.files})
-    const p = state.peers.get(peerId)
-    if (p) p.transfers.set(data.tid, session)
+    state.incoming.set(data.tid, {start: performance.now(), base: 0, total, sink, peerId, count: data.files.length, files: data.files})
+    addTransfer(data.tid, {peerId, session, dir: 'in'})
     setPeerStatus(peerId, 'receiving', {fraction: 0})
     resolve(sink)
   }))
+}
+
+/** The sender's connection dropped mid-transfer; it may come back and resume. */
+function onIncomingPaused(peerId, tid) {
+  const inc = state.incoming.get(tid)
+  if (inc) inc.paused = true
+  setPeerStatus(peerId, 'reconnecting')
+}
+
+function onIncomingProgress(peerId, tid, received, total) {
+  const inc = state.incoming.get(tid)
+  if (!inc) return
+  if (inc.paused) {
+    // resumed: measure speed from here, not across the gap
+    inc.paused = false
+    inc.start = performance.now()
+    inc.base = received
+  }
+  setProgress(peerId, 'receiving', received, total, inc.start, inc.base)
 }
 
 /** The sender withdrew an offer we haven't answered yet: close or skip its dialog. */
@@ -689,7 +795,7 @@ function onIncomingDone(peerId, tid) {
   const inc = state.incoming.get(tid)
   state.incoming.delete(tid)
   const p = state.peers.get(peerId)
-  if (p) p.transfers.delete(tid)
+  removeTransfer(tid)
   setPeerStatus(peerId, 'done', {fraction: 1})
   if (!inc) return
   const name = p?.info.name || '?'
@@ -701,8 +807,7 @@ function onIncomingDone(peerId, tid) {
 
 function onIncomingFailed(peerId, tid, reason) {
   state.incoming.delete(tid)
-  const p = state.peers.get(peerId)
-  if (p) p.transfers.delete(tid)
+  removeTransfer(tid)
   setPeerStatus(peerId, reason === 'cancelled' ? 'cancelled' : 'failed')
 }
 
@@ -912,10 +1017,8 @@ function makeHandlers(key) {
   return {
     onPeer: (id, info) => (info ? linkPeer(id, key, self(), info) : unlinkPeer(id, key)),
     onOffer: (id, offer, signal) => askOffer(id, offer, signal, self()),
-    onIncomingProgress: (id, tid, received, total) => {
-      const inc = state.incoming.get(tid)
-      if (inc) setProgress(id, 'receiving', received, total, inc.start)
-    },
+    onIncomingProgress,
+    onIncomingPaused,
     onOfferCancelled,
     onIncomingDone,
     onIncomingFailed,

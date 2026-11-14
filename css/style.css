@@ -299,6 +299,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .node-mascot svg { width: 100%; height: 100%; }
 @keyframes bob { 50% { transform: translateY(-3px) rotate(-3deg); } }
 
+.node.is-offline .node-orb { opacity: 0.5; filter: grayscale(0.6); }
+.node.is-offline .node-name { opacity: 0.6; }
+.node[data-status="reconnecting"] .node-status { color: var(--peach); }
 .node:hover .node-orb,
 .node.is-drag .node-orb { transform: scale(1.08); }
 .node.is-selected .node-orb {
@@ -385,7 +388,10 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 10px var(--mint); flex-shrink: 0; }
 .panel-state[data-state="waiting"] .state-dot,
 .panel-state[data-state="sending"] .state-dot,
-.panel-state[data-state="receiving"] .state-dot { background: var(--sky); box-shadow: 0 0 10px var(--sky); animation: blink 1s ease-in-out infinite; }
+.panel-state[data-state="receiving"] .state-dot,
+.panel-state[data-state="reconnecting"] .state-dot { background: var(--sky); box-shadow: 0 0 10px var(--sky); animation: blink 1s ease-in-out infinite; }
+.panel-state[data-state="reconnecting"] .state-dot { background: var(--peach); box-shadow: 0 0 10px var(--peach); }
+.keep-open { margin: -6px 0 0; text-align: left; }
 .panel-state[data-state="failed"] .state-dot,
 .panel-state[data-state="declined"] .state-dot,
 .panel-state[data-state="cancelled"] .state-dot { background: var(--warn); box-shadow: none; border-radius: 2px; }
