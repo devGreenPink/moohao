@@ -212,15 +212,15 @@
       </aside>
     </div>
 
-    <section class="scan" id="scan" role="status">
+    <section class="scan" id="scan">
       <span class="scan-icon" id="scan-icon" aria-hidden="true"></span>
       <div class="scan-text">
-        <b id="scan-title"></b>
+        <b id="scan-title" aria-live="polite"></b>
         <span id="scan-detail"></span>
       </div>
-      <div class="scan-track" aria-hidden="true"><span></span></div>
-      <span class="scan-count" id="scan-count"></span>
-      <button id="scan-room" class="btn small" type="button" data-use-room hidden><span data-i18n="useRoom"></span></button>
+      <div class="scan-crew" id="scan-crew" role="group"></div>
+      <span class="scan-count" id="scan-count" hidden></span>
+      <button id="scan-action" class="btn small scan-action" type="button" hidden></button>
     </section>
   </main>
 

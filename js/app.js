@@ -284,7 +284,12 @@ const transferHandlers = {
 const trayList = createTransferList($('#tray-list'), {compact: true, ...transferHandlers, onSelect: id => state.peers.has(id) && selectPeer(id)})
 const panelList = createTransferList(panel.transferContainer, transferHandlers)
 
-const scan = createScanStatus(document.body)
+const scan = createScanStatus(document.body, {
+  onSelect: id => state.peers.has(id) && selectPeer(id),
+  onUseRoom: () => openRoomDialog(),
+  // in a room already: the room dialog shows the pictures, QR code and "Share link"
+  onInvite: () => openRoomDialog(),
+})
 
 const sky = createSky({canvas: $('#sky-canvas'), twinkleLayer: $('#sky-twinkles'), shootLayer: $('#sky-shooting')})
 
@@ -306,7 +311,11 @@ function refresh() {
   else if (count) kind = 'found'
   else kind = Date.now() - state.searchStart < SEARCH_GRACE_MS ? 'searching' : 'none'
 
-  scan.set({kind, count, mode: state.mode, code: state.code && displayCode(state.code, lang), message: error})
+  const peers = []
+  for (const [id, p] of state.peers) {
+    if (!p.offline && p.info) peers.push({id, name: p.info.displayName, avatar: p.info.avatar, color: p.info.color})
+  }
+  scan.set({kind, count, mode: state.mode, code: state.code && displayCode(state.code, lang), message: error, peers})
   renderPanel(kind, error)
 }
 

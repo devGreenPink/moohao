@@ -749,14 +749,14 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 /* ---------- scan bar ---------- */
 .scan {
   width: min(100%, 900px);
-  display: flex; align-items: center; gap: 16px;
-  padding: 14px 20px;
-  border-radius: 24px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 9px 12px 9px 14px;
+  border-radius: 22px;
   background: var(--surface);
   border: 1px solid var(--ring-strong);
 }
 .scan-icon {
-  width: 42px; height: 42px; flex-shrink: 0; border-radius: 50%;
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 50%;
   display: grid; place-items: center;
   color: var(--sky);
   background: var(--surface-2);
@@ -767,21 +767,34 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .scan-icon .w3 { animation-delay: 0.4s; }
 @keyframes wave { 0%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
 .scan[data-state="error"] .scan-icon { color: var(--warn); }
-.scan-text { min-width: 0; flex: 0 1 auto; }
-.scan-text b { display: block; font-weight: 500; font-size: 15px; }
-.scan-text span { display: block; font-size: 12.5px; color: var(--muted); }
-.scan-track {
-  flex: 1; min-width: 60px; height: 4px; border-radius: 4px;
-  background: var(--line); position: relative; overflow: hidden;
+.scan-text { min-width: 0; flex: 1 1 auto; }
+.scan-text b { display: block; font-weight: 500; font-size: 14.5px; line-height: 1.35; }
+.scan-text span { display: block; font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+#scan-detail.tip-in { animation: tip-in 0.4s ease-out; }
+@keyframes tip-in { from { opacity: 0; transform: translateY(3px); } }
+
+/* who's here: little mascots (tap to pick), or three "listening" dots while nobody is */
+.scan-crew { display: flex; align-items: center; flex-shrink: 0; }
+.scan-crew:empty { display: none; }
+.crew-mate {
+  width: 34px; height: 34px; padding: 0; margin-left: -8px;
+  border-radius: 50%; cursor: pointer;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--tint) 34%, var(--surface-solid)), var(--surface-solid) 78%);
+  border: 0; box-shadow: 0 0 0 2px var(--tint), 0 0 0 4px var(--surface-solid);
+  transition: transform 0.2s cubic-bezier(.3,1.6,.5,1);
 }
-.scan-track span {
-  position: absolute; top: 0; left: 0; width: 28%; height: 100%; border-radius: 4px;
-  background: linear-gradient(90deg, transparent, var(--sky), var(--lav), transparent);
-  animation: scan-move 2.6s ease-in-out infinite alternate;
-}
-@keyframes scan-move { from { transform: translateX(0); } to { transform: translateX(257%); } }
-.scan[data-state="none"] .scan-track span { animation-duration: 5s; opacity: 0.6; }
-.scan[data-state="error"] .scan-track { visibility: hidden; }
+.crew-mate:first-child { margin-left: 0; }
+.crew-mate:hover, .crew-mate:focus-visible { transform: translateY(-2px) scale(1.08); z-index: 1; }
+.crew-mate .space-avatar { width: 76%; height: 76%; }
+.crew-more { margin-left: 8px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.listen { display: inline-flex; gap: 6px; padding: 0 6px; }
+.listen i { width: 7px; height: 7px; border-radius: 50%; background: var(--sky); opacity: 0.25; animation: listen 1.6s ease-in-out infinite; }
+.listen i:nth-child(2) { animation-delay: 0.2s; }
+.listen i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes listen { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 40% { opacity: 1; transform: scale(1.15); } }
+:root.lite .listen i { animation: none; opacity: 0.6; }
+.scan-action { flex-shrink: 0; }
 .scan-count {
   flex-shrink: 0;
   padding: 4px 12px; border-radius: 999px;
@@ -1237,7 +1250,7 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .panel { justify-self: center; max-width: 520px; max-height: none; overflow: visible; }
   .radar { --size: min(100%, 500px); }
   /* the panel (with its own room button) sits right above the bar here */
-  #scan-room { display: none; }
+  .scan-action[data-act="room"] { display: none; }
 }
 
 @media (max-width: 640px) {
@@ -1251,8 +1264,7 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .node-name { font-size: 12px; max-width: 108px; padding: 1px 8px; }
   .scan { flex-wrap: wrap; gap: 10px 12px; padding: 12px 14px; }
   .scan-text { flex: 1 1 0; }
-  .scan-track { order: 5; flex-basis: 100%; }
-  #scan-room { order: 6; flex-basis: 100%; }
+  .scan-action { order: 6; flex-basis: 100%; }
   .pending-bar { top: 72px; }
 }
 
