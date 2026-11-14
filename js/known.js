@@ -69,6 +69,14 @@ export function noteTransfer(deviceId, dir) {
   save()
 }
 
+/** We offered to pair with this device once; don't ask again. */
+export function markPairAsked(deviceId) {
+  const rec = knownDevice(deviceId)
+  if (!rec) return
+  rec.pairAsked = true
+  save()
+}
+
 export function setNickname(deviceId, nickname) {
   const rec = knownDevice(deviceId)
   if (!rec) return

@@ -50,6 +50,56 @@ const BY_LENGTH = [...LOOKUP.keys()].sort((a, b) => b.length - a.length)
 
 const LEGACY = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/
 
+// ---------- picture codes: 4 space mascots, tapped instead of typed ----------
+// e.g. "p-saturn-rocket-alien-moon". 16^4 = 65,536 codes: plenty for short-lived rooms,
+// since files still need the receiver's "Accept" and the safety code shows who is who.
+
+/**
+ * Mascot id → [English, Thai] name (said aloud), and a fixed colour so every screen matches.
+ * The round ones (moon, planet, asteroid, sun, saturn, galaxy) all get different colours so
+ * they can't be mixed up at a glance.
+ */
+export const PICTURES = {
+  saturn: ['Saturn', 'ดาวเสาร์', 0],
+  moon: ['Moon', 'พระจันทร์', 1],
+  star: ['Star', 'ดาว', 4],
+  comet: ['Comet', 'ดาวหาง', 2],
+  sun: ['Sun', 'ดวงอาทิตย์', 5],
+  rocket: ['Rocket', 'จรวด', 7],
+  saucer: ['UFO', 'จานบิน', 6],
+  satellite: ['Satellite', 'ดาวเทียม', 2],
+  astro: ['Astronaut', 'นักบินอวกาศ', 0],
+  alien: ['Alien', 'เอเลี่ยน', 3],
+  planet: ['Planet', 'ดาวเคราะห์', 7],
+  asteroid: ['Asteroid', 'อุกกาบาต', 3],
+  nebula: ['Nebula', 'เนบิวลา', 1],
+  galaxy: ['Galaxy', 'กาแล็กซี', 6],
+  luna: ['Crescent', 'จันทร์เสี้ยว', 4],
+  rover: ['Rover', 'รถสำรวจ', 5],
+}
+export const PICTURE_IDS = Object.keys(PICTURES)
+export const PICTURE_LENGTH = 4
+
+export function isPictureCode(code) {
+  if (typeof code !== 'string' || !code.startsWith('p-')) return false
+  const ids = code.slice(2).split('-')
+  return ids.length === PICTURE_LENGTH && ids.every(id => id in PICTURES)
+}
+
+/** Mascot ids of a picture code. */
+export function pictureIds(code) {
+  return isPictureCode(code) ? code.slice(2).split('-') : []
+}
+
+export function pictureCode(ids) {
+  return `p-${ids.join('-')}`
+}
+
+export function newPictureCode() {
+  const r = crypto.getRandomValues(new Uint8Array(PICTURE_LENGTH))
+  return pictureCode([...r].map(b => PICTURE_IDS[b & 15]))
+}
+
 export function newWordCode() {
   const r = crypto.getRandomValues(new Uint8Array(3))
   return [...r].map(b => WORDS[b & 127][0]).join('-')
@@ -75,6 +125,7 @@ function segment(text, need = 3) {
 export function parseRoomCode(raw) {
   const s = String(raw || '').normalize('NFC').trim().toLowerCase()
   if (!s) return null
+  if (isPictureCode(s)) return s
   const tokens = s.split(/[\s\-_,.·/|+]+/).filter(Boolean)
   if (tokens.length === 3 && tokens.every(tk => LOOKUP.has(tk))) {
     return tokens.map(tk => WORDS[LOOKUP.get(tk)][0]).join('-')
@@ -87,11 +138,12 @@ export function parseRoomCode(raw) {
 }
 
 export function isWordCode(code) {
-  return typeof code === 'string' && code.includes('-')
+  return typeof code === 'string' && code.includes('-') && !isPictureCode(code)
 }
 
-/** Words of a canonical code in the given language ('th' | 'en'). */
+/** Words of a canonical code in the given language ('th' | 'en'); picture names for picture codes. */
 export function codeWords(code, lang) {
+  if (isPictureCode(code)) return pictureIds(code).map(id => PICTURES[id][lang === 'th' ? 1 : 0])
   if (!isWordCode(code)) return [code]
   return code.split('-').map(w => {
     const forms = WORDS[LOOKUP.get(w)]

@@ -862,6 +862,69 @@ textarea { resize: vertical; width: 100%; }
   border: 1px solid color-mix(in srgb, var(--sky) 40%, transparent);
 }
 .code-alt { text-align: center; margin-top: -6px; }
+.row.center { justify-content: center; }
+
+/* ---------- picture room codes ---------- */
+/* one mascot on a soft rounded tile; colour fixed per picture so both screens match */
+.pic {
+  display: grid; place-items: center;
+  aspect-ratio: 1; border-radius: 30%;
+  background: color-mix(in srgb, var(--tint) 16%, #241f55);
+  border: 1.5px solid color-mix(in srgb, var(--tint) 40%, transparent);
+}
+:root[data-theme="light"] .pic { background: color-mix(in srgb, var(--tint) 18%, #fff); }
+.pic .space-avatar { width: 80%; height: 80%; }
+
+.pic-code { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 340px; width: 100%; margin: 0 auto; }
+.pic-code figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pic-code .pic { width: 100%; box-shadow: 0 0 18px color-mix(in srgb, var(--tint) 30%, transparent); }
+.pic-code figcaption { font-size: 12.5px; color: var(--muted); text-align: center; line-height: 1.25; }
+
+.pic-join { display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 20px; background: var(--surface-2); border: 1px solid var(--line); }
+.pic-join-title { margin: 0; text-align: center; color: var(--text); line-height: 1.45; }
+.pic-slots-row { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.pic-slots { display: grid; grid-template-columns: repeat(4, 48px); gap: 8px; }
+.pic-slots .slot { width: 48px; }
+.pic-slots .slot.empty { aspect-ratio: 1; border-radius: 30%; border: 1.5px dashed var(--ring-strong); }
+.pic-slots .slot.next { border-color: var(--lav); box-shadow: 0 0 0 3px color-mix(in srgb, var(--lav) 18%, transparent); }
+.pic-slots .slot.pic { animation: slot-in 0.28s cubic-bezier(.2,1.6,.4,1); }
+@keyframes slot-in { from { transform: scale(0.5); opacity: 0; } }
+#pic-back:disabled { opacity: 0.35; cursor: default; }
+.pic-pad { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pic-pad button.pic { width: 100%; padding: 0; cursor: pointer; transition: transform 0.15s cubic-bezier(.3,1.6,.5,1), border-color 0.15s ease; }
+.pic-pad button.pic:hover { border-color: var(--tint); transform: translateY(-1px); }
+.pic-pad button.pic:active { transform: scale(0.92); }
+.pic-pad button.pic:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.pic-pad.is-full button.pic { opacity: 0.5; pointer-events: none; }
+.type-toggle { align-self: center; }
+#room-type[hidden] { display: none; }
+
+/* header chip: "Room" + four tiny mascots */
+.chip-pics { display: inline-flex; gap: 2px; vertical-align: middle; margin-left: 2px; }
+.chip-pics i { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 30%; background: color-mix(in srgb, var(--tint) 22%, transparent); }
+.chip-pics .space-avatar { width: 18px; height: 18px; }
+
+/* ---------- "pair so you find each other next time" ---------- */
+.suggest {
+  --tint: var(--peach);
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px 14px; border-radius: 16px;
+  background: var(--surface-solid); border: 1px solid color-mix(in srgb, var(--tint) 55%, transparent);
+  box-shadow: var(--shadow), 0 0 22px color-mix(in srgb, var(--tint) 18%, transparent);
+  animation: hint-in 0.35s cubic-bezier(.2,1.4,.4,1) both;
+}
+.suggest[hidden] { display: none; }
+.suggest-icon {
+  width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%;
+  display: grid; place-items: center; color: var(--peach);
+  background: color-mix(in srgb, var(--peach) 16%, transparent);
+}
+.suggest-icon svg { width: 18px; height: 18px; fill: currentColor; stroke: none; }
+.suggest-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.suggest-text b { font-weight: 500; font-size: 14px; }
+.suggest-text span { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.suggest-text .row { margin-top: 6px; }
+.suggest-text .btn.small { height: 32px; padding: 0 14px; font-size: 13px; }
 .code-say { text-align: center; margin: 0; color: var(--muted); }
 
 .scan-view {

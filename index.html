@@ -219,6 +219,19 @@
 
   <!-- All transfers, wherever you are on the page -->
   <div class="tray" id="tray" hidden>
+    <section class="suggest" id="suggest" aria-labelledby="suggest-title" hidden>
+      <span class="suggest-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg>
+      </span>
+      <div class="suggest-text">
+        <b id="suggest-title"></b>
+        <span id="suggest-body" data-i18n="suggestPairBody"></span>
+        <div class="row">
+          <button type="button" class="btn small primary" id="suggest-yes" data-i18n="suggestPairYes"></button>
+          <button type="button" class="btn small ghost" id="suggest-no" data-i18n="suggestPairNo"></button>
+        </div>
+      </div>
+    </section>
     <div class="tray-head" id="tray-head" hidden>
       <span data-i18n="transfersTitle"></span>
       <button class="link-btn" id="tray-clear" type="button" data-i18n="clearFinished"></button>
@@ -284,12 +297,16 @@
       <h3 data-i18n="roomTitle"></h3>
       <div id="room-active" hidden>
         <p class="muted" data-i18n="yourRoom"></p>
+        <div class="pic-code" id="room-pics" hidden></div>
         <div class="code" id="room-code"></div>
         <p class="muted small code-alt" id="room-code-alt"></p>
-        <p class="small code-say" data-i18n="codeSay"></p>
+        <p class="small code-say" id="room-say"></p>
         <div class="qr" id="room-qr"></div>
-        <p class="muted small" data-i18n="scanHint"></p>
-        <div class="row">
+        <div class="row center">
+          <button type="button" class="btn primary" id="room-share" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/></svg>
+            <span data-i18n="shareLink"></span>
+          </button>
           <button type="button" class="btn" id="room-copy" data-i18n="copyLink"></button>
           <button type="button" class="btn ghost" id="room-leave" data-i18n="leaveRoom"></button>
         </div>
@@ -297,8 +314,19 @@
       <div id="room-idle">
         <p class="muted" data-i18n="roomHelp"></p>
         <button type="button" class="btn primary wide" id="room-create" data-i18n="createRoom"></button>
-        <div class="join">
-          <input id="room-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="60" enterkeyhint="go" data-i18n-placeholder="codePlaceholder">
+        <div class="pic-join">
+          <p class="small pic-join-title" data-i18n="joinByPics"></p>
+          <div class="pic-slots-row">
+            <div class="pic-slots" id="pic-slots" role="status"></div>
+            <button type="button" class="icon-btn" id="pic-back" data-i18n-title="removeLast" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5h11v14H9l-6-7 6-7Z"/><path d="m12 9.5 5 5M17 9.5l-5 5"/></svg>
+            </button>
+          </div>
+          <div class="pic-pad" id="pic-pad" role="group"></div>
+        </div>
+        <button type="button" class="link-btn type-toggle" id="room-type-toggle" aria-expanded="false" aria-controls="room-type" data-i18n="typeInstead"></button>
+        <div class="join" id="room-type" hidden>
+          <input id="room-input" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" enterkeyhint="go" data-i18n-placeholder="codePlaceholder">
           <button type="button" class="btn" id="room-join" data-i18n="joinRoom"></button>
         </div>
         <p class="field-error" id="room-error" role="alert" hidden></p>

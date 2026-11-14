@@ -1,13 +1,13 @@
 import {t, lang, setLang, applyStatic} from './i18n.js'
 import {createSession, detectNetworkRoom, codeRoom, pairRoom, randomId} from './net.js'
-import {newWordCode, parseRoomCode, displayCode, codeWords, isWordCode} from './words.js'
+import {parseRoomCode, displayCode, codeWords, isWordCode, isPictureCode, pictureIds, pictureCode, newPictureCode, PICTURES, PICTURE_IDS, PICTURE_LENGTH} from './words.js'
 import {notifyState, toggleNotify, notify, closeNotification, onNotificationAction, buzz, bumpBadge, clearBadge} from './notify.js'
 import {scannerSupported, runScanner} from './ui/scanner.js'
 import {memorySink, diskSink, diskSupported, streamSink, streamSupported, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
 import {loadPairs, addPair, removePair, touchPair} from './pairing.js'
 import {AVATARS, COLOR_COUNT, defaultAvatar, defaultColor, cleanAvatar, cleanColor, withLook, randomName, isOldGeneratedName} from './identity.js'
 import {avatarSvg} from './ui/avatars.js'
-import {knownDevice, noteSeen, noteTransfer, setNickname, familiarity, displayName} from './known.js'
+import {knownDevice, noteSeen, noteTransfer, setNickname, familiarity, displayName, markPairAsked} from './known.js'
 import {qrcode} from '../vendor/vendor.js'
 import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
@@ -356,9 +356,19 @@ function restartSearchClock() {
 function updateMode() {
   const dot = $('#mode-dot')
   dot.className = 'dot'
+  $('#btn-room').removeAttribute('aria-label')
   if (state.mode === 'room') {
     dot.classList.add('room')
-    $('#mode-label').textContent = t('modeRoom', {code: displayCode(state.code, lang)})
+    if (isPictureCode(state.code)) {
+      // "Room" + the 4 little mascots, the same pictures the other device taps
+      const label = $('#mode-label')
+      label.textContent = `${t('roomWord')} `
+      const pics = document.createElement('span')
+      pics.className = 'chip-pics'
+      pics.innerHTML = pictureIds(state.code).map(id => `<i data-color="${PICTURES[id][2]}">${avatarSvg(id)}</i>`).join('')
+      label.append(pics)
+      $('#btn-room').setAttribute('aria-label', t('modeRoom', {code: displayCode(state.code, lang)}))
+    } else $('#mode-label').textContent = t('modeRoom', {code: displayCode(state.code, lang)})
   } else if (state.mode === 'offline') {
     $('#mode-label').textContent = t('modeOffline')
   } else {
@@ -688,7 +698,7 @@ function renderTransfers() {
   const visible = (x, linger) => isActive(x) || x.status !== 'done' || now - x.finishedAt < linger
   const inTray = list.filter(x => visible(x, TRAY_LINGER_MS) && !(panelShows && x.peerId === sel))
   trayList.render(inTray.map(viewModel))
-  $('#tray').hidden = !inTray.length
+  $('#tray').hidden = !inTray.length && $('#suggest').hidden
   state.trayFinished = finishedIn(inTray)
   $('#tray-head').hidden = !state.trayFinished.length
   const inPanel = sel ? list.filter(x => x.peerId === sel && visible(x, PANEL_LINGER_MS)) : []
@@ -863,6 +873,7 @@ async function sendFiles(id, files) {
         transferState(myTid, status)
         setPeerStatus(id, status)
         const name = nameOf(id)
+        if (status === 'done') suggestPairing(id)
         if (status === 'done') alertUser({title: t('nSent', {name}), body: fileNames(files), tag: `sent-${id}`})
         else if (status === 'declined') alertUser({title: t('nDeclined', {name}), body: fileNames(files), tag: `sent-${id}`})
         else if (status === 'failed') alertUser({title: t('nFailed', {name}), body: fileNames(files), tag: `sent-${id}`})
@@ -1595,24 +1606,50 @@ setInterval(() => {
   if (!document.hidden) recheckNetwork()
 }, 60_000)
 
+/** A mascot tile for picture codes: same picture + colour on every device. */
+function pictureTile(id, tag = 'span') {
+  const el = document.createElement(tag)
+  el.className = 'pic'
+  el.dataset.color = String(PICTURES[id][2])
+  el.innerHTML = avatarSvg(id)
+  return el
+}
+
 function renderRoomDialog() {
   const inRoom = state.mode === 'room'
   $('#room-active').hidden = !inRoom
   $('#room-idle').hidden = inRoom
   $('#room-error').hidden = true
   $('#room-scan').hidden = !scannerSupported()
+  $('#room-share').hidden = !navigator.share
   if (inRoom) {
     const codeEl = $('#room-code')
+    const pics = isPictureCode(state.code)
     const words = isWordCode(state.code)
-    codeEl.classList.toggle('words', words)
-    codeEl.replaceChildren(...codeWords(state.code, lang).map(w => {
-      const span = document.createElement('span')
-      span.textContent = w
-      return span
-    }))
-    codeEl.setAttribute('aria-label', displayCode(state.code, lang))
+    $('#room-pics').hidden = !pics
+    codeEl.hidden = pics
+    if (pics) {
+      $('#room-pics').replaceChildren(...pictureIds(state.code).map((id, i) => {
+        const cell = document.createElement('figure')
+        const n = document.createElement('figcaption')
+        n.textContent = `${i + 1}. ${PICTURES[id][lang === 'th' ? 1 : 0]}`
+        cell.append(pictureTile(id), n)
+        return cell
+      }))
+      $('#room-pics').setAttribute('aria-label', displayCode(state.code, lang))
+      $('#room-pics').setAttribute('role', 'img')
+    } else {
+      codeEl.classList.toggle('words', words)
+      codeEl.replaceChildren(...codeWords(state.code, lang).map(w => {
+        const span = document.createElement('span')
+        span.textContent = w
+        return span
+      }))
+      codeEl.setAttribute('aria-label', displayCode(state.code, lang))
+    }
     $('#room-code-alt').hidden = !words
-    $('.code-say').hidden = !words
+    $('#room-say').hidden = !words && !pics
+    $('#room-say').textContent = pics ? t('picSay') : t('codeSay')
     if (words) $('#room-code-alt').textContent = t('codeAlt', {code: displayCode(state.code, lang === 'th' ? 'en' : 'th')})
     const qr = qrcode(0, 'M')
     qr.addData(roomUrl(state.code))
@@ -1623,14 +1660,95 @@ function renderRoomDialog() {
 }
 
 function openRoomDialog() {
+  picked = []
+  renderPicPad()
   renderRoomDialog()
   $('#room-input').value = ''
+  $('#room-type').hidden = true
+  $('#room-type-toggle').setAttribute('aria-expanded', 'false')
   showDialog($('#dlg-room'))
+}
+
+// ---------- joining by tapping pictures ----------
+
+let picked = []
+
+function renderPicPad() {
+  const pad = $('#pic-pad')
+  pad.setAttribute('aria-label', t('joinByPics'))
+  if (!pad.children.length || pad.dataset.lang !== lang) {
+    pad.dataset.lang = lang
+    pad.replaceChildren(...PICTURE_IDS.map(id => {
+      const b = pictureTile(id, 'button')
+      b.type = 'button'
+      b.dataset.pic = id
+      b.setAttribute('aria-label', PICTURES[id][lang === 'th' ? 1 : 0])
+      b.title = b.getAttribute('aria-label')
+      b.addEventListener('click', () => pickPicture(id))
+      return b
+    }))
+  }
+  const slots = $('#pic-slots')
+  slots.replaceChildren(...Array.from({length: PICTURE_LENGTH}, (_, i) => {
+    const id = picked[i]
+    const slot = id ? pictureTile(id) : document.createElement('span')
+    slot.classList.add('slot')
+    if (!id) slot.classList.add('empty')
+    if (i === picked.length) slot.classList.add('next')
+    return slot
+  }))
+  const names = picked.map(id => PICTURES[id][lang === 'th' ? 1 : 0]).join(', ')
+  slots.setAttribute('aria-label', picked.length ? t('picSlot', {n: picked.length, names}) : t('picNone'))
+  $('#pic-back').disabled = !picked.length
+  pad.classList.toggle('is-full', picked.length >= PICTURE_LENGTH)
+}
+
+function pickPicture(id) {
+  if (picked.length >= PICTURE_LENGTH) return
+  picked.push(id)
+  $('#room-error').hidden = true
+  renderPicPad()
+  if (picked.length === PICTURE_LENGTH) {
+    const code = pictureCode(picked)
+    // a short beat so the fourth picture is seen landing in its slot
+    setTimeout(() => {
+      joinCode(code).then(joined => {
+        if (!joined) {
+          picked = []
+          renderPicPad()
+        }
+      })
+    }, 280)
+  }
+}
+
+$('#pic-back').addEventListener('click', () => {
+  picked.pop()
+  renderPicPad()
+})
+
+$('#room-type-toggle').addEventListener('click', e => {
+  const box = $('#room-type')
+  box.hidden = !box.hidden
+  e.currentTarget.setAttribute('aria-expanded', String(!box.hidden))
+  if (!box.hidden) $('#room-input').focus()
+})
+
+/** Join a room (asking first if that would stop transfers here). Resolves true if joined. */
+async function joinCode(code) {
+  if (code === state.code) {
+    $('#dlg-room').close()
+    return true
+  }
+  if (!(await okToSwitch())) return false
+  $('#dlg-room').close()
+  enterRoom(code)
+  return true
 }
 
 $('#btn-room').addEventListener('click', openRoomDialog)
 $('#room-create').addEventListener('click', async () => {
-  await enterRoom(newWordCode())
+  await enterRoom(newPictureCode())
   renderRoomDialog()
 })
 function joinTyped() {
@@ -1641,12 +1759,7 @@ function joinTyped() {
     $('#room-input').focus()
     return
   }
-  if (code === state.code) return $('#dlg-room').close()
-  okToSwitch().then(ok => {
-    if (!ok) return
-    $('#dlg-room').close()
-    enterRoom(code)
-  })
+  joinCode(code)
 }
 $('#room-input').addEventListener('input', () => { $('#room-error').hidden = true })
 
@@ -1703,6 +1816,53 @@ $('#room-input').addEventListener('keydown', e => {
 $('#room-copy').addEventListener('click', async () => {
   if (await copyText(roomUrl(state.code))) toast(t('linkCopied'))
 })
+// The phone's own share sheet (LINE, Messenger, …): the other person just taps the link.
+$('#room-share').addEventListener('click', async () => {
+  try {
+    await navigator.share({title: 'Nearby', text: t('shareText'), url: roomUrl(state.code)})
+  } catch (err) {
+    if (err?.name === 'AbortError') return // closed the share sheet
+    if (await copyText(roomUrl(state.code))) toast(t('linkCopied'))
+  }
+})
+
+// ---------- "pair so you find each other next time" ----------
+
+let suggestTimer = 0
+let suggestPeer = null
+
+/**
+ * After the first file sent to someone in a room, offer pairing once: next time the two
+ * devices find each other on their own, without a room code. Asked once per device.
+ */
+function suggestPairing(id) {
+  const p = state.peers.get(id)
+  const deviceId = p?.info.deviceId
+  if (state.mode !== 'room' || !p?.links.has('main') || !deviceId || pairFor(id)) return
+  if (knownDevice(deviceId)?.pairAsked || !$('#suggest').hidden) return
+  markPairAsked(deviceId)
+  suggestPeer = id
+  $('#suggest-title').textContent = t('suggestPairTitle', {name: p.info.displayName})
+  $('#suggest').dataset.color = String(p.info.color)
+  $('#suggest').hidden = false
+  $('#tray').hidden = false
+  clearTimeout(suggestTimer)
+  suggestTimer = setTimeout(hideSuggestion, 30_000)
+}
+
+function hideSuggestion() {
+  clearTimeout(suggestTimer)
+  suggestPeer = null
+  $('#suggest').hidden = true
+  scheduleTransferRender() // the tray may have nothing else to show
+}
+
+$('#suggest-yes').addEventListener('click', () => {
+  const id = suggestPeer
+  hideSuggestion()
+  if (id && state.peers.has(id)) pairWith(id)
+})
+$('#suggest-no').addEventListener('click', hideSuggestion)
 $('#room-leave').addEventListener('click', async () => {
   const ok = await confirmBox({
     title: t('leaveQ', {code: displayCode(state.code, lang)}),
@@ -1904,6 +2064,7 @@ function applyLanguage() {
   renderNotifyButton()
   renderInboxButton()
   inbox.render()
+  renderPicPad()
   if ($('#dlg-room').open) renderRoomDialog()
   renderMe()
   updateMode()
