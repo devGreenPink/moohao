@@ -40,10 +40,34 @@ Share files and text between nearby devices, right in the browser. No server.
   - เด้งเฉพาะตอนไม่ได้ดูหน้า Nearby อยู่ และทำงานเฉพาะตอนที่ Nearby เปิดค้างไว้ (ไม่มี push server)
   - สั่นบน Android และแสดงตัวเลขบนไอคอนแอปที่ติดตั้งแล้ว
 
+### ตัวตนของแต่ละเครื่อง / Who is who
+
+- **เปิดมาใช้ได้เลย**: ครั้งแรกจะสุ่มชื่ออวกาศ (เช่น "Sleepy Saturn") มาสคอตและสีให้อัตโนมัติ
+  ไม่ต้องตั้งค่าอะไรก่อน เปลี่ยนเองได้ทีหลังจากปุ่มโปรไฟล์ (ตัวเราตรงกลางเรดาร์)
+  Open it and send right away: a random space name, mascot and colour are picked for you.
+- **มาสคอตอวกาศ 16 ตัว** (ดาวเสาร์ จรวด นักบินอวกาศ เอเลี่ยน ดาวเทียม ฯลฯ) สไตล์สติกเกอร์ชุดเดียวกัน
+  วาดเป็น SVG จึงหน้าตาเหมือนกันทุกระบบ และอีก 8 สีพาสเทลให้แต่ละเครื่องแยกกันง่าย
+- **จำเครื่องที่เคยเจอ** (เก็บในเครื่องเท่านั้น): ป้าย "ใหม่ / เคยเจอ", เชื่อมต่อล่าสุดเมื่อไหร่,
+  ส่ง/รับไปกี่ครั้ง และตั้งชื่อเล่นให้เครื่องอื่นได้ เครื่องที่จับคู่/เคยเจออยู่วงในของเรดาร์
+- **การ์ดการโอน**: แต่ละไฟล์มีการ์ดของตัวเองพร้อมความเร็ว เวลาที่เหลือ และปุ่มยกเลิก
+- **ธีม**: กลางคืน (ค่าเริ่มต้น) หรือรุ่งเช้า พื้นหลังเป็นท้องฟ้าดาวที่วาดครั้งเดียวลง canvas
+
+### เอฟเฟกต์ + ประหยัดพลังงาน / Effects + power saving
+
+- จุดบนเรดาร์กะพริบตอนเส้นกวาดผ่าน, ดาวหางพุ่งตอนเริ่มส่ง, ดาวแตกกระจายตอนส่งเสร็จ,
+  มาสคอตกะพริบตาและยิ้มเมื่อชี้เมาส์
+- ใช้แค่ transform/opacity (ให้ GPU ทำ) ไม่มี blur ที่หนักเครื่อง และปิดเองเมื่อเปิด "ลดการเคลื่อนไหว"
+- **โหมดประหยัดพลังงาน** (ในโปรไฟล์: อัตโนมัติ / ประหยัด / เต็มที่) อัตโนมัติจะเปิดเองเมื่อเครื่องสเปกต่ำ
+  (≤ 2 คอร์ หรือ RAM ≤ 2 GB) หรือแบตเหลือ ≤ 20% และไม่ได้ชาร์จ
+
 ### เบื้องหลัง / Under the hood
 
 - Signaling ใช้ [Trystero](https://github.com/dmotz/trystero) ผ่าน Nostr relay สาธารณะ จึง host บน GitHub Pages ได้
 - "เครือข่ายเดียวกัน" ใช้ hash ของ public IPv4 เป็นชื่อห้อง (ลองถามจาก ipify, icanhazip, ident.me ตามลำดับ)
+- ไบต์ของไฟล์วิ่งบน RTCDataChannel แยก (ชิ้นละ 64 KB) ส่วนข้อความควบคุมอยู่บน Trystero
+  ผู้รับตอบ ack ทุก 1 MB และผู้ส่งค้างได้ไม่เกิน 8 MB จึงเร็วแต่ไม่ล้นหน่วยความจำ
+- **ส่งต่อได้เมื่อหลุด**: ถ้าการเชื่อมต่อขาดระหว่างส่ง จะต่อจากจุดเดิมภายใน 90 วินาที
+  และขอ wake lock ไม่ให้จอดับระหว่างโอน
 - การจับคู่ = secret ที่สุ่มแล้วเก็บไว้ทั้งสองเครื่อง ใช้ตั้งชื่อห้องส่วนตัวที่ทั้งคู่เข้าทุกครั้งที่เปิดแอป
 - ข้อจำกัด:
   - Wi‑Fi ที่เปิด client isolation หรือเน็ตมือถือบางค่ายอาจต่อตรงไม่ได้ (ไม่มี TURN server)
@@ -70,6 +94,8 @@ addresses behave like two different devices (handy for testing pairing).
 | `js/net.js` | Networking: network detection, Trystero rooms, offer/accept, chunked transfer, safety code, pair requests |
 | `js/sinks.js` | Where received bytes go: memory, disk (File System Access) or streamed download |
 | `js/pairing.js` | Saved pairings (localStorage) |
+| `js/identity.js` | Random space names, mascot + colour per device |
+| `js/known.js` | Devices seen before: badges, last seen, transfer counts, nicknames |
 | `js/words.js` | 3-word room codes (Thai / English), parsing incl. Thai typed without spaces |
 | `js/notify.js` | System notifications, vibration, app badge, on/off setting |
 | `js/ui/scanner.js` | In-app QR scanner (BarcodeDetector or jsQR) |
@@ -77,8 +103,11 @@ addresses behave like two different devices (handy for testing pairing).
 | `js/ui/radar.js` | Radar with device buttons (placement, selection, progress, keyboard) |
 | `js/ui/panel.js` | Side panel: selected device / pick prompt / searching / help / error |
 | `js/ui/status.js` | Hero heading and scan bar states (searching, found, none, error) |
-| `js/ui/mascot.js` | Device mascot SVGs and line icons |
-| `js/ui/sky.js` | Decorative twinkling stars |
+| `js/ui/avatars.js` | The 16 space mascot SVGs |
+| `js/ui/mascot.js` | Device-type badges and line icons |
+| `js/ui/transfers.js` | Transfer cards and the transfer tray |
+| `js/ui/effects.js` | Effects on/off and power-saving mode |
+| `js/ui/sky.js` | Starry background (canvas), twinkles, shooting stars |
 | `sw.js` | Service worker: offline cache, share target, streamed downloads |
 | `manifest.webmanifest`, `icons/` | PWA manifest and icons (`scripts/make-icons.mjs`) |
 
