@@ -286,6 +286,9 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   animation: node-in 0.5s cubic-bezier(.2,1.5,.4,1) both;
 }
 @keyframes node-in { from { opacity: 0; scale: 0.4; } }
+/* name above the avatar (upper part of the inner rings), so it points away from you;
+   the avatar centre still sits exactly on the ring position */
+.node.label-above { flex-direction: column-reverse; transform: translate(-50%, calc(-100% + var(--orb) / 2 + 4px)); }
 .node:focus-visible { outline: none; }
 .node:focus-visible .node-orb { outline: 3px solid var(--focus); outline-offset: 6px; }
 

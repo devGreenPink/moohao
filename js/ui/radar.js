@@ -63,21 +63,58 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
   /** Room each device gets along its ring before labels start to bump into each other. */
   const MIN_GAP_PX = 118
 
+  /** Smallest angle (degrees) between two directions. */
+  const angleGap = (a, b) => {
+    const d = Math.abs((((a - b) % 360) + 360) % 360)
+    return Math.min(d, 360 - d)
+  }
+
+  /**
+   * Turn a ring so its devices sit as far as possible (by angle) from devices already placed
+   * on the inner rings; otherwise two rings can line up on one ray and their avatars and
+   * labels pile on top of each other.
+   */
+  function bestOffset(count, placed, preferred) {
+    if (!placed.length || !count) return preferred
+    const step = 360 / count
+    let best = preferred
+    let bestScore = -1
+    for (let o = 0; o < step; o += 3) {
+      const offset = preferred + o
+      let score = 360
+      for (let i = 0; i < count; i++) {
+        for (const p of placed) score = Math.min(score, angleGap(offset + i * step, p))
+      }
+      if (score > bestScore + 0.5) {
+        bestScore = score
+        best = offset
+      }
+    }
+    return best
+  }
+
   function layout() {
     const groups = {paired: [], known: [], new: []}
     for (const [id, n] of nodes) groups[n.tier].push(id)
-    let offset = -60
+    const placed = [] // angles in use, degrees
     for (const tier of TIER_ORDER) {
       const ids = groups[tier].sort()
       const count = ids.length
+      // first ring starts at "2 o'clock-ish"; the others turn to stay clear of it
+      const offset = bestOffset(count, placed, -60)
+      for (let i = 0; i < count; i++) placed.push(offset + (i * 360) / count)
       // Crowded ring (small screen or many devices): alternate in and out so neighbours'
       // labels sit on different heights instead of overlapping.
-      const gap = (2 * Math.PI * TIER_RADIUS[tier] * radiusPx) / Math.max(1, count)
+      const ring = ringRadius(tier)
+      const gap = (2 * Math.PI * ring * radiusPx) / Math.max(1, count)
       const stagger = count > 2 && gap < MIN_GAP_PX ? 0.07 : 0
       ids.forEach((id, i) => {
         const node = nodes.get(id)
         node.angle = (offset + (i * 360) / count) * (Math.PI / 180)
-        node.r = Math.min(0.86, TIER_RADIUS[tier] + (i % 2 ? stagger : -stagger))
+        node.r = Math.min(0.86, Math.max(minRing(), ring + (i % 2 ? stagger : -stagger)))
+        // Labels point away from you: devices in the upper part of an inner ring carry their
+        // name above the avatar, so it never hangs down over your own avatar in the middle.
+        node.el.classList.toggle('label-above', node.r < 0.72 && Math.sin(node.angle) < -0.3)
         node.el.style.setProperty('--x', `${50 + Math.cos(node.angle) * node.r * 50}%`)
         node.el.style.setProperty('--y', `${50 + Math.sin(node.angle) * node.r * 50}%`)
         node.el.style.setProperty('--delay', `${(i % 6) * -0.6}s`)
@@ -85,9 +122,23 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         syncBlip(node)
         fitLabel(node)
       })
-      // Stagger rings so devices on different rings don't line up on one ray.
-      offset += 360 / Math.max(2, count) / 2 + 23
     }
+  }
+
+  /**
+   * Ring radius for a tier. On a small radar the inner ring moves out a little: the avatars
+   * keep a fixed pixel size there, so at 0.46 they'd crowd your own avatar.
+   */
+  function ringRadius(tier) {
+    return tier === 'paired' && radiusPx < 220 ? 0.52 : TIER_RADIUS[tier]
+  }
+
+  /** Closest a device may sit to the centre: clear of your avatar, its halo and "You" tag. */
+  function minRing() {
+    if (!radiusPx) return 0
+    const selfR = radiusPx * SELF_FRACTION
+    const orb = Math.min(ORB_PX, radiusPx * 0.28) / 2
+    return Math.min(0.6, (selfR + 16 + orb + 8) / radiusPx)
   }
 
   /**
