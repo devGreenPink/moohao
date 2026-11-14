@@ -341,6 +341,9 @@ export function createSession({roomId, password}, me, handlers) {
       os: String(info.os || '').slice(0, 20),
       browser: String(info.browser || '').slice(0, 20),
       deviceId: String(info.deviceId || '').slice(0, 64),
+      // Checked against the allowed lists by the app (identity.js withLook).
+      avatar: typeof info.avatar === 'string' ? info.avatar.slice(0, 8) : null,
+      color: Number.isInteger(info.color) ? info.color : null,
     }
     peers.set(peerId, clean)
     handlers.onPeer(peerId, clean)

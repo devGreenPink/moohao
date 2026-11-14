@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Nearby</title>
   <meta name="description" content="Share files and text between devices on the same network. Peer-to-peer, nothing is uploaded.">
-  <meta name="theme-color" content="#151634">
+  <meta name="theme-color" content="#11122c">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -16,12 +16,22 @@
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600&display=swap"></noscript>
   <link rel="stylesheet" href="css/style.css">
   <script>
-    // Apply the saved theme before first paint to avoid a flash.
-    try { const th = localStorage.getItem('nearby.theme'); if (th) document.documentElement.dataset.theme = th } catch {}
+    // Night is the default look. Earlier versions could have saved "light"; reset that once.
+    try {
+      if (!localStorage.getItem('nearby.themeV2')) {
+        localStorage.removeItem('nearby.theme')
+        localStorage.setItem('nearby.themeV2', '1')
+      }
+      if (localStorage.getItem('nearby.theme') === 'light') document.documentElement.dataset.theme = 'light'
+    } catch {}
   </script>
 </head>
 <body>
-  <div class="sky" id="sky" aria-hidden="true"></div>
+  <div class="sky" aria-hidden="true">
+    <canvas id="sky-canvas"></canvas>
+    <div id="sky-twinkles"></div>
+    <div id="sky-shooting"></div>
+  </div>
 
   <header class="topbar">
     <div class="brand">
@@ -44,7 +54,6 @@
       </button>
       <button id="btn-notify" class="icon-btn notify" type="button" hidden></button>
       <button id="btn-lang" class="icon-btn text" type="button" data-i18n="language"></button>
-      <button id="btn-theme" class="icon-btn" type="button" data-i18n-title="theme"></button>
     </div>
   </header>
 
@@ -62,55 +71,78 @@
           <span class="radar-cross"></span>
           <span class="radar-sweep"></span>
         </div>
-        <div class="radar-self" id="self">
-          <span class="self-mascot" id="self-mascot" aria-hidden="true"></span>
-          <span class="visually-hidden" id="self-label"></span>
-        </div>
+        <div class="radar-beams" aria-hidden="true"></div>
+        <button class="radar-self" id="self" type="button">
+          <span class="self-avatar" id="self-avatar" aria-hidden="true"></span>
+          <span class="self-you" data-i18n="you"></span>
+        </button>
         <div class="radar-nodes" id="radar-nodes" role="group"></div>
       </div>
 
       <aside class="panel" id="panel">
         <div data-view="peer" hidden>
           <div class="panel-head">
-            <p class="panel-kicker" data-i18n="panelKicker"></p>
-            <button id="panel-close" class="icon-btn" type="button" data-i18n-title="deselect">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-            </button>
-          </div>
-          <div class="panel-device">
-            <span class="panel-mascot" id="panel-mascot" aria-hidden="true"></span>
+            <div class="panel-who" id="panel-who">
+              <span class="panel-avatar" id="panel-avatar" aria-hidden="true"></span>
+              <span class="panel-device" id="panel-device" aria-hidden="true"></span>
+            </div>
             <div class="panel-id">
               <h3 id="panel-name"></h3>
               <p id="panel-sub"></p>
             </div>
+            <button id="panel-close" class="icon-btn" type="button" data-i18n-title="deselect">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+            </button>
+          </div>
+          <div class="panel-meta">
+            <span class="tag" id="panel-tag"><i aria-hidden="true"></i><span></span></span>
+            <span class="panel-history" id="panel-history"></span>
           </div>
           <p class="panel-state" id="panel-state"><span class="state-dot" aria-hidden="true"></span><span id="panel-state-text"></span></p>
-          <p class="panel-hint keep-open" id="panel-keepopen" data-i18n="keepOpen" hidden></p>
-          <div class="verify">
-            <span class="verify-label" data-i18n="verifyLabel"></span>
-            <span class="verify-code" id="panel-code"></span>
-          </div>
-          <p class="panel-hint verify-hint" data-i18n="verifyHint"></p>
-          <button id="panel-send-files" class="btn primary wide" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
-            <span data-i18n="sendFiles"></span>
-          </button>
-          <button id="panel-cancel" class="btn wide danger" type="button" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-            <span data-i18n="cancelTransfer"></span>
-          </button>
-          <button id="panel-send-text" class="btn ghost wide" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg>
-            <span data-i18n="sendText"></span>
-          </button>
-          <div class="panel-pair">
-            <span class="paired-tag" id="panel-paired" hidden>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg>
-              <span data-i18n="pairedBadge"></span>
-            </span>
-            <button id="panel-pair" class="link-btn" type="button"></button>
-          </div>
-          <p class="panel-hint" data-i18n="dropHint"></p>
+
+          <section class="panel-sec">
+            <h4 data-i18n="secSend"></h4>
+            <div class="send-row">
+              <button id="panel-send-files" class="btn primary" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>
+                <span data-i18n="sendFiles"></span>
+              </button>
+              <button id="panel-send-text" class="btn" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z"/></svg>
+                <span data-i18n="sendTextShort"></span>
+              </button>
+            </div>
+            <p class="panel-hint" data-i18n="dropHint"></p>
+          </section>
+
+          <section class="panel-sec" id="panel-xfers-sec" hidden>
+            <h4 data-i18n="secTransfers"></h4>
+            <div class="xfer-list" id="panel-xfers"></div>
+            <p class="panel-hint keep-open" data-i18n="keepOpen"></p>
+          </section>
+
+          <section class="panel-sec" id="panel-safety">
+            <h4>
+              <span data-i18n="secSafety"></span>
+              <button class="info-btn" id="panel-info" type="button" aria-expanded="false" aria-controls="panel-info-text" data-i18n-title="whatIsThis">i</button>
+            </h4>
+            <div class="verify">
+              <span class="verify-label" data-i18n="verifyLabel"></span>
+              <span class="verify-code" id="panel-code"></span>
+            </div>
+            <p class="panel-hint info-text" id="panel-info-text" data-i18n="safetyExplain" hidden></p>
+          </section>
+
+          <section class="panel-sec">
+            <h4 data-i18n="secDevice"></h4>
+            <div class="device-row">
+              <button id="panel-nickname" class="btn small" type="button">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13 7 4 4"/></svg>
+                <span data-i18n="setNickname"></span>
+              </button>
+              <button id="panel-pair" class="btn small" type="button"></button>
+            </div>
+          </section>
         </div>
 
         <div data-view="pick" hidden>
@@ -164,12 +196,19 @@
   </main>
 
   <footer class="me">
-    <div class="me-card">
-      <small data-i18n="youAre"></small>
-      <button id="me-name" class="name-btn" type="button" data-i18n-title="rename"></button>
-    </div>
+    <button class="me-card" id="me-card" type="button" data-i18n-title="profileTitle">
+      <span class="me-avatar" id="me-avatar" aria-hidden="true"></span>
+      <span class="me-text">
+        <small data-i18n="youAre"></small>
+        <b id="me-name"></b>
+      </span>
+      <svg class="me-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13 7 4 4"/></svg>
+    </button>
     <p class="about" data-i18n="about"></p>
   </footer>
+
+  <!-- All transfers, wherever you are on the page -->
+  <div class="tray" id="tray" aria-live="polite" hidden></div>
 
   <div id="pending-bar" class="pending-bar" hidden>
     <span id="pending-text"></span>
@@ -180,6 +219,40 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <div id="sr-live" class="visually-hidden" aria-live="polite"></div>
   <input id="file-input" type="file" multiple hidden>
+
+  <!-- Profile -->
+  <dialog id="dlg-profile">
+    <form method="dialog" class="sheet">
+      <h3 id="profile-title"></h3>
+      <p class="muted small" id="profile-intro" data-i18n="profileIntro" hidden></p>
+      <div class="profile-preview" id="profile-preview">
+        <span class="profile-avatar" id="profile-avatar" aria-hidden="true"></span>
+      </div>
+      <label class="field">
+        <span data-i18n="renamePrompt"></span>
+        <input id="profile-name" maxlength="40" autocomplete="off" spellcheck="false">
+      </label>
+      <fieldset class="field">
+        <legend data-i18n="pickAvatar"></legend>
+        <div class="avatar-grid" id="profile-avatars" role="radiogroup"></div>
+      </fieldset>
+      <fieldset class="field">
+        <legend data-i18n="pickColor"></legend>
+        <div class="color-row" id="profile-colors" role="radiogroup"></div>
+      </fieldset>
+      <fieldset class="field">
+        <legend data-i18n="themeLabel"></legend>
+        <div class="segmented" id="profile-theme" role="radiogroup">
+          <button type="button" role="radio" data-theme-value="night" data-i18n="themeNight"></button>
+          <button type="button" role="radio" data-theme-value="light" data-i18n="themeDawn"></button>
+        </div>
+      </fieldset>
+      <div class="row end">
+        <button class="btn ghost" value="cancel" data-i18n="cancel"></button>
+        <button class="btn primary" value="save" data-i18n="saveProfile"></button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Room / QR -->
   <dialog id="dlg-room">

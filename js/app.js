@@ -5,17 +5,24 @@ import {notifyState, toggleNotify, notify, closeNotification, onNotificationActi
 import {scannerSupported, runScanner} from './ui/scanner.js'
 import {memorySink, diskSink, diskSupported, streamSink, streamSupported, MEMORY_SINK_LIMIT, MEMORY_FALLBACK_LIMIT} from './sinks.js'
 import {loadPairs, addPair, removePair, touchPair} from './pairing.js'
+import {AVATARS, COLOR_COUNT, defaultAvatar, defaultColor, cleanAvatar, cleanColor, withLook} from './identity.js'
+import {knownDevice, noteSeen, noteTransfer, setNickname, familiarity, displayName} from './known.js'
 import {qrcode} from '../vendor/vendor.js'
-import {mascot, ICONS} from './ui/mascot.js'
+import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
 import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
-import {scatterStars} from './ui/sky.js'
+import {createTransferList, fmtSize, fmtTime} from './ui/transfers.js'
+import {createSky} from './ui/sky.js'
 
 const $ = sel => document.querySelector(sel)
 
 /** After this long with nobody found, switch from "searching" to "not found" + help. */
 const SEARCH_GRACE_MS = 15_000
+
+/** Finished transfers stay in the floating tray this long, and in the side panel longer. */
+const TRAY_LINGER_MS = 8_000
+const PANEL_LINGER_MS = 60_000
 
 // ---------- small helpers ----------
 
@@ -25,23 +32,6 @@ function store(key, value) {
     localStorage.setItem(key, value)
   } catch {}
   return null
-}
-
-function fmtSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`
-  const units = ['KB', 'MB', 'GB', 'TB']
-  let v = bytes / 1024
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
-}
-
-function fmtTime(seconds) {
-  const s = Math.max(0, Math.round(seconds))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const ss = String(s % 60).padStart(2, '0')
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
 function ext(name) {
@@ -124,6 +114,16 @@ async function copyText(text) {
   }
 }
 
+function relativeTime(ts) {
+  const diff = (ts - Date.now()) / 1000
+  const units = [['year', 31536000], ['month', 2592000], ['week', 604800], ['day', 86400], ['hour', 3600], ['minute', 60]]
+  const fmt = new Intl.RelativeTimeFormat(lang, {numeric: 'auto'})
+  for (const [unit, secs] of units) {
+    if (Math.abs(diff) >= secs) return fmt.format(Math.round(diff / secs), unit)
+  }
+  return fmt.format(0, 'minute')
+}
+
 // ---------- who am I ----------
 
 function detectDevice() {
@@ -159,11 +159,15 @@ function randomName() {
   return `${pick(adj)} ${pick(animal)}`
 }
 
+const firstRun = !store('nearby.name')
 const me = {
   name: store('nearby.name') || randomName(),
   deviceId: store('nearby.deviceId') || randomId(12),
   ...detectDevice(),
 }
+me.avatar = cleanAvatar(store('nearby.avatar')) || defaultAvatar(me.name, me.deviceId)
+const savedColor = store('nearby.color')
+me.color = (savedColor !== null ? cleanColor(Number(savedColor)) : null) ?? defaultColor(me.deviceId, me.name)
 store('nearby.name', me.name)
 store('nearby.deviceId', me.deviceId)
 
@@ -175,16 +179,18 @@ const state = {
   mode: 'local', // 'local' | 'room' | 'offline' (network lookup failed)
   code: null,
   netRoom: undefined,
-  // peerId -> {info, links: Map(key -> session), status, clearTimer, code, codePromise, offline}
+  // peerId -> {raw, info, links: Map(key -> session), status, clearTimer, code, codePromise, offline}
   peers: new Map(),
   pending: null, // {kind: 'files', files, shared?} | {kind: 'text', text, shared?}
   targetPeer: null,
-  incoming: new Map(), // tid -> {start, total, sink, peerId}
+  incoming: new Map(), // tid -> {sink, peerId}
   withdrawn: new Set(), // offers the sender cancelled before we answered
-  transfers: new Map(), // tid -> {peerId, session, dir}; see addTransfer()
+  // tid -> transfer record (see addTransfer); kept a while after finishing for the cards
+  xfers: new Map(),
   sendingTo: new Set(), // peers we're preparing an offer for (thumbnails etc.)
   offerPeer: null,
   offerTid: null,
+  offerTag: null,
   lastScanKind: 'searching',
   lastNetCheck: 0,
   searchStart: Date.now(),
@@ -215,12 +221,28 @@ function pairFor(id) {
   return (p.info.deviceId && pairs.find(x => x.deviceId === p.info.deviceId)) || null
 }
 
+/** paired → closest ring; seen before → middle; new → outer. */
+function tierOf(id) {
+  if (pairFor(id)) return 'paired'
+  return familiarity(state.peers.get(id)?.info.deviceId)
+}
+
+/** Peer info as shown: avatar/colour filled in, nickname applied. */
+function decorate(raw) {
+  const info = withLook(raw)
+  info.displayName = displayName(info)
+  return info
+}
+
+function nameOf(id) {
+  return state.peers.get(id)?.info.displayName || '?'
+}
+
 // ---------- UI components ----------
 
-function describePeer(info, status, paired) {
+function describePeer(info, status, tier) {
   const sys = [info.os, info.browser].filter(Boolean).join(' ')
-  const parts = [info.name, t(info.device) + (sys ? ` (${sys})` : '')]
-  if (paired) parts.push(t('pairedBadge'))
+  const parts = [info.displayName, t(info.device) + (sys ? ` (${sys})` : ''), t(tier === 'paired' ? 'pairedBadge' : tier === 'known' ? 'tagKnown' : 'tagNew')]
   if (status?.text) parts.push(status.text)
   return parts.join(', ')
 }
@@ -237,9 +259,9 @@ const radar = createRadar($('#radar'), {
 const panel = createPanel($('#panel'), {
   onSendFiles: id => pickFilesFor(id),
   onSendText: id => openCompose(id),
-  onCancel: id => cancelTransfer(id),
   onPair: id => pairWith(id),
   onUnpair: id => unpairPeer(id),
+  onNickname: id => editNickname(id),
   onClose: () => {
     const id = radar.selected
     selectPeer(null)
@@ -248,9 +270,19 @@ const panel = createPanel($('#panel'), {
   onUseRoom: () => openRoomDialog(),
 })
 
+const transferHandlers = {
+  onCancel: (peerId, tid) => state.xfers.get(tid)?.session.cancel(tid),
+  onOpen: tid => {
+    const x = state.xfers.get(tid)
+    if (x?.results) showReceived(x.peerId, x.results, {quiet: true})
+  },
+}
+const trayList = createTransferList($('#tray'), {compact: true, ...transferHandlers, onSelect: id => state.peers.has(id) && selectPeer(id)})
+const panelList = createTransferList(panel.transferContainer, transferHandlers)
+
 const scan = createScanStatus(document.body)
 
-scatterStars($('#sky'))
+const sky = createSky({canvas: $('#sky-canvas'), twinkleLayer: $('#sky-twinkles'), shootLayer: $('#sky-shooting')})
 
 // ---------- view refresh ----------
 
@@ -274,6 +306,14 @@ function refresh() {
   renderPanel(kind, error)
 }
 
+function historyLine(deviceId) {
+  const rec = knownDevice(deviceId)
+  if (!rec) return ''
+  const seen = rec.prevSeen ? t('lastSeen', {when: relativeTime(rec.prevSeen)}) : t('firstTime')
+  const n = (rec.sent || 0) + (rec.received || 0)
+  return n ? `${seen} · ${t('transfersCount', {n})}` : seen
+}
+
 /**
  * Just the side panel. Transfer progress calls this (several times a second) instead of
  * refresh(), so the scan bar and other UI aren't rebuilt on every tick.
@@ -285,8 +325,9 @@ function renderPanel(kind = state.lastScanKind, error = null) {
     const p = state.peers.get(sel)
     if (p.code === undefined) loadCode(sel)
     panel.render({
-      kind: 'peer', id: sel, info: p.info, status: p.status,
-      code: p.code, paired: !!pairFor(sel), canCancel: transfersWith(sel).length > 0, offline: p.offline,
+      kind: 'peer', id: sel, info: p.info, status: p.status, code: p.code,
+      tier: tierOf(sel), history: historyLine(p.info.deviceId), offline: p.offline,
+      hasTransfers: panelTransfers(sel).length > 0,
     })
   } else if (kind === 'error') {
     panel.render({kind: 'error', message: error ?? currentError()})
@@ -324,20 +365,28 @@ function updateMode() {
 
 function renderMe() {
   $('#me-name').textContent = me.name
-  $('#self').dataset.device = me.device
-  $('#self-mascot').innerHTML = mascot(me.device)
-  $('#self-label').textContent = `${t('you')}: ${me.name}`
+  $('#me-avatar').textContent = me.avatar
+  $('#me-card').dataset.color = String(me.color)
+  $('#self').dataset.color = String(me.color)
+  $('#self-avatar').textContent = me.avatar
+  $('#self').setAttribute('aria-label', `${t('you')}: ${me.name} — ${t('profileTitle')}`)
 }
 
 // ---------- peers ----------
 
-function linkPeer(id, key, session, info) {
+function upsertNode(id) {
+  const p = state.peers.get(id)
+  if (p) radar.upsert(id, p.info, {tier: tierOf(id), offline: p.offline})
+}
+
+function linkPeer(id, key, session, raw) {
   let p = state.peers.get(id)
   if (!p) {
-    p = {info, links: new Map(), status: {kind: 'idle'}, clearTimer: 0, code: undefined, codePromise: null, offline: false}
+    p = {raw, info: null, links: new Map(), status: {kind: 'idle'}, clearTimer: 0, code: undefined, codePromise: null, offline: false}
     state.peers.set(id, p)
   }
-  p.info = info
+  p.raw = raw
+  p.info = decorate(raw)
   if (p.offline) {
     // back after a drop: new connection, new safety code
     p.code = undefined
@@ -346,8 +395,9 @@ function linkPeer(id, key, session, info) {
   p.offline = false
   p.links.set(key, session)
   if (key === 'main') state.joinError = null
-  if (key.startsWith('pair:')) touchPair(key.slice(5), info)
-  radar.upsert(id, info, {paired: !!pairFor(id)})
+  if (key.startsWith('pair:')) touchPair(key.slice(5), p.info)
+  upsertNode(id) // tier is computed before noteSeen so a new device stays "new" this visit
+  noteSeen(p.info)
   refresh()
   refreshPairListIfOpen()
 }
@@ -364,10 +414,10 @@ function unlinkPeer(id, key) {
     refreshPairListIfOpen()
     return
   }
-  if (transfersWith(id).length) {
+  if (activeWith(id).length) {
     // A transfer is waiting for this device to reconnect: keep it on the radar, dimmed.
     p.offline = true
-    radar.upsert(id, p.info, {paired: !!pairFor(id), offline: true})
+    upsertNode(id)
     refresh()
     return
   }
@@ -392,36 +442,139 @@ function onlineCount() {
   return n
 }
 
-function refreshPairFlags() {
-  for (const [id, p] of state.peers) radar.upsert(id, p.info, {paired: !!pairFor(id), offline: p.offline})
+function refreshPeers() {
+  for (const [id, p] of state.peers) {
+    p.info = decorate(p.raw)
+    upsertNode(id)
+  }
   refresh()
   refreshPairListIfOpen()
 }
 
-// ---------- active transfers ----------
-
-/** tid -> {peerId, session, dir: 'in' | 'out'}; kept across short disconnects. */
-function transfersWith(id) {
-  return [...state.transfers.entries()].filter(([, x]) => x.peerId === id)
+function editNickname(id) {
+  const p = state.peers.get(id)
+  if (!p?.info.deviceId) return
+  const current = knownDevice(p.info.deviceId)?.nickname || ''
+  const next = prompt(t('nicknamePrompt'), current || p.info.name)
+  if (next === null) return
+  setNickname(p.info.deviceId, next === p.info.name ? '' : next)
+  refreshPeers()
 }
 
-function addTransfer(tid, info) {
-  state.transfers.set(tid, info)
-  if (me.device !== 'desktop' && state.transfers.size === 1) toast(t('keepOpen'), 5000)
-  updateWakeLock()
-  renderPanel()
+// ---------- transfers (records, cards, wake lock) ----------
+
+const ACTIVE = new Set(['waiting', 'active', 'reconnecting'])
+const isActive = x => ACTIVE.has(x.status)
+
+/** Active transfers with a peer, as [tid, record] pairs. */
+function activeWith(id) {
+  return [...state.xfers.entries()].filter(([, x]) => x.peerId === id && isActive(x))
 }
 
-function removeTransfer(tid) {
-  const info = state.transfers.get(tid)
-  if (!info) return
-  state.transfers.delete(tid)
+function activeCount() {
+  let n = 0
+  for (const x of state.xfers.values()) if (isActive(x)) n++
+  return n
+}
+
+function panelTransfers(id) {
+  const now = Date.now()
+  return [...state.xfers.values()].filter(x => x.peerId === id && (isActive(x) || now - x.finishedAt < PANEL_LINGER_MS))
+}
+
+/**
+ * record: {tid, peerId, session, dir, files, total, done, status, speed, eta, start, base,
+ *          results?, finishedAt?}
+ */
+function addTransfer(tid, {peerId, session, dir, files}) {
+  const firstActive = activeCount() === 0
+  state.xfers.set(tid, {
+    tid, peerId, session, dir,
+    files: files.map(f => ({name: f.name, size: f.size, type: f.type, thumb: f.thumb || null})),
+    total: files.reduce((s, f) => s + f.size, 0),
+    done: 0, status: 'waiting', speed: 0, eta: 0, start: 0, base: 0, finishedAt: 0,
+  })
+  if (me.device !== 'desktop' && firstActive) toast(t('keepOpen'), 5000)
   updateWakeLock()
-  // A device kept on the radar only for this transfer can go now.
-  const p = state.peers.get(info.peerId)
-  if (p?.offline && !transfersWith(info.peerId).length) setTimeout(() => {
-    if (state.peers.get(info.peerId)?.offline && !transfersWith(info.peerId).length) removePeerNow(info.peerId)
-  }, 4000)
+  scheduleTransferRender()
+}
+
+/** Progress for a transfer: bytes done of total. */
+function transferProgress(tid, done) {
+  const x = state.xfers.get(tid)
+  if (!x) return
+  const now = performance.now()
+  if (x.status !== 'active') {
+    // (re)started: measure speed from here, not across a wait or a reconnect gap
+    x.start = now
+    x.base = done
+    x.status = 'active'
+  }
+  x.done = done
+  const secs = (now - x.start) / 1000
+  x.speed = secs > 0.4 ? (done - x.base) / secs : 0
+  x.eta = x.speed > 0 ? (x.total - done) / x.speed : 0
+  setPeerStatus(x.peerId, x.dir === 'out' ? 'sending' : 'receiving', {fraction: x.total ? done / x.total : 1, speed: x.speed})
+  scheduleTransferRender()
+}
+
+function transferState(tid, status) {
+  const x = state.xfers.get(tid)
+  if (!x) return
+  x.status = status
+  if (!ACTIVE.has(status)) {
+    x.finishedAt = Date.now()
+    if (status === 'done') {
+      x.done = x.total
+      noteTransfer(state.peers.get(x.peerId)?.info.deviceId, x.dir)
+    }
+    updateWakeLock()
+    // A device kept on the radar only for this transfer can go now.
+    const p = state.peers.get(x.peerId)
+    if (p?.offline && !activeWith(x.peerId).length) setTimeout(() => {
+      if (state.peers.get(x.peerId)?.offline && !activeWith(x.peerId).length) removePeerNow(x.peerId)
+    }, 4000)
+    setTimeout(scheduleTransferRender, TRAY_LINGER_MS + 50)
+    setTimeout(() => {
+      state.xfers.delete(tid)
+      scheduleTransferRender()
+    }, PANEL_LINGER_MS + 50)
+  }
+  scheduleTransferRender()
+}
+
+function viewModel(x) {
+  const p = state.peers.get(x.peerId)
+  const info = p?.info || {displayName: '?', avatar: '❔', color: 0}
+  return {
+    tid: x.tid, peerId: x.peerId, dir: x.dir, status: x.status, files: x.files,
+    done: x.done, total: x.total, speed: x.speed, eta: x.eta,
+    peer: {displayName: info.displayName, avatar: info.avatar, color: info.color},
+    canOpen: x.status === 'done' && !!x.results,
+  }
+}
+
+// Progress can arrive from several transfers at once; draw at most once per frame.
+let transferFrame = 0
+function scheduleTransferRender() {
+  if (transferFrame) return
+  transferFrame = requestAnimationFrame(() => {
+    transferFrame = 0
+    renderTransfers()
+  })
+}
+
+function renderTransfers() {
+  const now = Date.now()
+  const list = [...state.xfers.values()].sort((a, b) => (isActive(b) - isActive(a)) || b.finishedAt - a.finishedAt)
+  trayList.render(list.filter(x => isActive(x) || now - x.finishedAt < TRAY_LINGER_MS).map(viewModel))
+  const sel = radar.selected
+  const inPanel = sel ? list.filter(x => x.peerId === sel && (isActive(x) || now - x.finishedAt < PANEL_LINGER_MS)) : []
+  panelList.render(inPanel.map(viewModel))
+  // particle beams on the radar for transfers that are moving bytes
+  const beams = new Map()
+  for (const x of list) if (x.status === 'active') beams.set(x.peerId, x.dir)
+  for (const id of state.peers.keys()) radar.setBeam(id, beams.get(id) || null)
   renderPanel()
 }
 
@@ -429,16 +582,16 @@ function removeTransfer(tid) {
 // screen turns off, which stalls or drops the connection.
 let wakeLock = null
 async function updateWakeLock() {
-  const want = state.transfers.size > 0 && document.visibilityState === 'visible'
+  const want = activeCount() > 0 && document.visibilityState === 'visible'
   if (want && !wakeLock && 'wakeLock' in navigator) {
     try {
       wakeLock = await navigator.wakeLock.request('screen')
       wakeLock.addEventListener('release', () => { wakeLock = null })
-      if (!state.transfers.size) updateWakeLock()
+      if (!activeCount()) updateWakeLock()
     } catch {
       wakeLock = null
     }
-  } else if (!state.transfers.size && wakeLock) {
+  } else if (!activeCount() && wakeLock) {
     const lock = wakeLock
     wakeLock = null
     lock.release().catch(() => {})
@@ -449,7 +602,7 @@ document.addEventListener('visibilitychange', updateWakeLock)
 
 // Closing the tab mid-transfer would lose it; ask first.
 window.addEventListener('beforeunload', e => {
-  if (!state.transfers.size) return
+  if (!activeCount()) return
   e.preventDefault()
   e.returnValue = ''
 })
@@ -457,6 +610,7 @@ window.addEventListener('beforeunload', e => {
 function selectPeer(id) {
   radar.select(id)
   refresh()
+  renderTransfers()
   if (id && matchMedia('(max-width: 1080px)').matches) {
     $('#panel').scrollIntoView({block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'})
   }
@@ -491,42 +645,33 @@ function loadCode(id) {
 
 const TERMINAL = new Set(['done', 'declined', 'failed', 'cancelled'])
 
-/** kind: idle | waiting | sending | receiving | reconnecting | done | declined | failed | cancelled */
-function setPeerStatus(id, kind, {fraction = 0, speed = 0, eta = 0} = {}) {
+/**
+ * The status shown on a device's radar node (ring, badge, short text).
+ * kind: idle | waiting | sending | receiving | reconnecting | done | declined | failed | cancelled
+ */
+function setPeerStatus(id, kind, {fraction = 0, speed = 0} = {}) {
   const p = state.peers.get(id)
   if (!p) return
   clearTimeout(p.clearTimer)
   let text = ''
-  let detail = ''
   if (kind === 'reconnecting') {
     fraction = p.status.fraction || 0 // keep the progress ring where it was
     text = t('reconnecting')
   } else if (kind === 'waiting') text = t('waiting')
   else if (kind === 'sending' || kind === 'receiving') {
     const pct = Math.floor(fraction * 100)
-    text = speed > 0 ? `${pct}% · ${fmtSize(speed)}/s` : `${t(kind)} ${pct}%`
-    detail = speed > 0 ? `${t(kind)} ${pct}% · ${fmtSize(speed)}/s · ${t('eta', {t: fmtTime(eta)})}` : text
+    text = speed > 0 ? `${pct}% · ${fmtSize(speed)}/s` : `${pct}%`
   } else if (kind !== 'idle') text = t(kind)
 
-  p.status = {kind, fraction, text, detail: detail || text}
+  const changed = p.status.kind !== kind
+  p.status = {kind, fraction, text}
   radar.setStatus(id, p.status)
-  if (radar.selected === id) renderPanel()
+  if (changed && radar.selected === id) renderPanel()
 
   if (TERMINAL.has(kind)) {
-    announce(`${p.info.name}: ${text}`)
+    announce(`${p.info.displayName}: ${text}`)
     p.clearTimer = setTimeout(() => setPeerStatus(id, 'idle'), kind === 'done' ? 2500 : 4000)
   }
-}
-
-/** base: bytes already done when `start` was taken (so speed after a resume is accurate). */
-function setProgress(id, kind, done, total, start, base = 0) {
-  const secs = (performance.now() - start) / 1000
-  const speed = secs > 0.4 ? (done - base) / secs : 0
-  setPeerStatus(id, kind, {
-    fraction: total ? done / total : 1,
-    speed,
-    eta: speed > 0 ? (total - done) / speed : 0,
-  })
 }
 
 // ---------- sending ----------
@@ -568,52 +713,46 @@ async function sendFiles(id, files) {
   const p = state.peers.get(id)
   const session = sessionFor(id)
   if (!p || !files.length || !session) return
-  if (state.sendingTo.has(id) || transfersWith(id).some(([, x]) => x.dir === 'out')) return toast(t('busy'))
+  if (state.sendingTo.has(id) || activeWith(id).some(([, x]) => x.dir === 'out')) return toast(t('busy'))
   state.sendingTo.add(id)
-  let start = 0
-  let base = 0
   let myTid = null
   try {
     const thumbs = await Promise.all(files.map((f, i) => (i < 8 ? makeThumb(f) : null)))
     await session.sendFiles(id, files, thumbs,
-      (status, sent, total) => {
-        if (status === 'sending') {
-          // restart the speed clock after a reconnect so the rate isn't averaged over the gap
-          if (!start || state.peers.get(id)?.status.kind === 'reconnecting') {
-            start = performance.now()
-            base = sent
-          }
-          setProgress(id, 'sending', sent, total, start, base)
-        } else {
-          setPeerStatus(id, status)
-          const name = p.info.name
-          if (status === 'done') alertUser({title: t('nSent', {name}), body: fileNames(files), tag: `sent-${id}`})
-          else if (status === 'declined') alertUser({title: t('nDeclined', {name}), body: fileNames(files), tag: `sent-${id}`})
-          else if (status === 'failed') alertUser({title: t('nFailed', {name}), body: fileNames(files), tag: `sent-${id}`})
+      (status, sent) => {
+        if (!myTid) return
+        if (status === 'sending') return transferProgress(myTid, sent)
+        if (status === 'waiting') return
+        if (status === 'reconnecting') {
+          transferState(myTid, 'reconnecting')
+          return setPeerStatus(id, 'reconnecting')
         }
+        transferState(myTid, status)
+        setPeerStatus(id, status)
+        const name = nameOf(id)
+        if (status === 'done') alertUser({title: t('nSent', {name}), body: fileNames(files), tag: `sent-${id}`})
+        else if (status === 'declined') alertUser({title: t('nDeclined', {name}), body: fileNames(files), tag: `sent-${id}`})
+        else if (status === 'failed') alertUser({title: t('nFailed', {name}), body: fileNames(files), tag: `sent-${id}`})
       },
       tid => {
         myTid = tid
-        addTransfer(tid, {peerId: id, session, dir: 'out'})
+        addTransfer(tid, {peerId: id, session, dir: 'out', files: files.map((f, i) => ({name: f.name, size: f.size, type: f.type, thumb: thumbs[i]}))})
+        setPeerStatus(id, 'waiting')
       })
   } finally {
     state.sendingTo.delete(id)
-    if (myTid) removeTransfer(myTid)
+    // anything that ended without a final status (e.g. the room was left) is a failure
+    const x = myTid && state.xfers.get(myTid)
+    if (x && isActive(x)) transferState(myTid, 'failed')
   }
 }
 
-/** Cancel every transfer (sending or receiving) currently running with this peer. */
-function cancelTransfer(id) {
-  for (const [tid, x] of transfersWith(id)) x.session.cancel(tid)
-}
-
 async function sendText(id, text) {
-  const p = state.peers.get(id)
   const session = sessionFor(id)
-  if (!p || !text.trim() || !session) return
+  if (!state.peers.has(id) || !text.trim() || !session) return
   try {
     await session.sendText(id, text)
-    toast(t('sentTo', {name: p.info.name}))
+    toast(t('sentTo', {name: nameOf(id)}))
   } catch {
     toast(t('failed'))
   }
@@ -717,8 +856,9 @@ function askOffer(peerId, data, signal, session) {
   return new Promise(resolve => enqueue(async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer || state.withdrawn.has(data.tid)) return resolve(null)
+    const name = `${peer.info.avatar} ${peer.info.displayName}`
     const total = data.files.reduce((s, f) => s + f.size, 0)
-    $('#offer-title').textContent = t('incomingTitle', {name: peer.info.name})
+    $('#offer-title').textContent = t('incomingTitle', {name})
     $('#offer-summary').textContent = t('filesCount', {n: data.files.length, size: fmtSize(total)})
     $('#offer-files').replaceChildren(...data.files.slice(0, 50).map(f => fileRow(f, {thumb: safeThumb(f.thumb)})))
     const code = await session.verificationCode(peerId).catch(() => null)
@@ -736,7 +876,7 @@ function askOffer(peerId, data, signal, session) {
     chime()
     flagTitle()
     alertUser({
-      title: t('nOffer', {name: peer.info.name}),
+      title: t('nOffer', {name: peer.info.displayName}),
       body: `${t('filesCount', {n: data.files.length, size: fmtSize(total)})}\n${fileNames(data.files)}`,
       tag,
       actions: [{action: 'accept', title: t('accept')}, {action: 'decline', title: t('decline')}],
@@ -757,30 +897,21 @@ function askOffer(peerId, data, signal, session) {
       sink.abort()
       return resolve(null)
     }
-    state.incoming.set(data.tid, {start: performance.now(), base: 0, total, sink, peerId, count: data.files.length, files: data.files})
-    addTransfer(data.tid, {peerId, session, dir: 'in'})
-    setPeerStatus(peerId, 'receiving', {fraction: 0})
+    state.incoming.set(data.tid, {sink, peerId})
+    addTransfer(data.tid, {peerId, session, dir: 'in', files: data.files.map(f => ({...f, thumb: safeThumb(f.thumb)}))})
+    transferProgress(data.tid, 0)
     resolve(sink)
   }))
 }
 
 /** The sender's connection dropped mid-transfer; it may come back and resume. */
 function onIncomingPaused(peerId, tid) {
-  const inc = state.incoming.get(tid)
-  if (inc) inc.paused = true
+  transferState(tid, 'reconnecting')
   setPeerStatus(peerId, 'reconnecting')
 }
 
-function onIncomingProgress(peerId, tid, received, total) {
-  const inc = state.incoming.get(tid)
-  if (!inc) return
-  if (inc.paused) {
-    // resumed: measure speed from here, not across the gap
-    inc.paused = false
-    inc.start = performance.now()
-    inc.base = received
-  }
-  setProgress(peerId, 'receiving', received, total, inc.start, inc.base)
+function onIncomingProgress(peerId, tid, received) {
+  transferProgress(tid, received)
 }
 
 /** The sender withdrew an offer we haven't answered yet: close or skip its dialog. */
@@ -794,33 +925,36 @@ function onOfferCancelled(peerId, tid) {
 function onIncomingDone(peerId, tid) {
   const inc = state.incoming.get(tid)
   state.incoming.delete(tid)
-  const p = state.peers.get(peerId)
-  removeTransfer(tid)
+  const x = state.xfers.get(tid)
+  if (x && inc?.sink.kind === 'memory') x.results = inc.sink.results
+  transferState(tid, 'done')
   setPeerStatus(peerId, 'done', {fraction: 1})
   if (!inc) return
-  const name = p?.info.name || '?'
-  alertUser({title: t('nReceived', {n: inc.count, name}), body: fileNames(inc.files), tag: `recv-${tid}`})
+  const files = x?.files || []
+  alertUser({title: t('nReceived', {n: files.length, name: nameOf(peerId)}), body: fileNames(files), tag: `recv-${tid}`})
   if (inc.sink.kind === 'memory') showReceived(peerId, inc.sink.results)
-  else if (inc.sink.kind === 'disk') toast(t('savedToDisk', {n: inc.count}), 4000)
+  else if (inc.sink.kind === 'disk') toast(t('savedToDisk', {n: files.length}), 4000)
   else toast(t('downloadSaved'), 4000)
 }
 
 function onIncomingFailed(peerId, tid, reason) {
   state.incoming.delete(tid)
-  removeTransfer(tid)
+  transferState(tid, reason === 'cancelled' ? 'cancelled' : 'failed')
   setPeerStatus(peerId, reason === 'cancelled' ? 'cancelled' : 'failed')
 }
 
-function showReceived(peerId, files) {
-  const name = state.peers.get(peerId)?.info.name || '?'
+function showReceived(peerId, files, {quiet = false} = {}) {
+  const name = nameOf(peerId)
   enqueue(async () => {
     const urls = files.map(f => URL.createObjectURL(f.blob))
     $('#received-title').textContent = t('receivedTitle', {name})
     $('#received-files').replaceChildren(...files.map((f, i) =>
       fileRow(f, {url: urls[i], thumb: /^image\//.test(f.type) ? urls[i] : null})))
     $('#received-all').hidden = files.length < 2
-    chime()
-    flagTitle()
+    if (!quiet) {
+      chime()
+      flagTitle()
+    }
     await showDialog($('#dlg-received'))
     // Give any download that was just started time to finish before releasing memory.
     setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 60_000)
@@ -847,7 +981,7 @@ function linkFrom(text) {
 }
 
 function showMessage(peerId, text) {
-  const name = state.peers.get(peerId)?.info.name || '?'
+  const name = nameOf(peerId)
   enqueue(async () => {
     $('#message-title').textContent = t('messageFrom', {name})
     $('#message-body').textContent = text
@@ -870,10 +1004,9 @@ function showMessage(peerId, text) {
 
 let composePeer = null
 function openCompose(id, prefill = '') {
-  const p = state.peers.get(id)
-  if (!p) return
+  if (!state.peers.has(id)) return
   composePeer = id
-  $('#compose-title').textContent = t('sendTextTo', {name: p.info.name})
+  $('#compose-title').textContent = t('sendTextTo', {name: nameOf(id)})
   const ta = $('#compose-text')
   ta.value = prefill
   showDialog($('#dlg-compose')).then(v => {
@@ -888,6 +1021,76 @@ $('#compose-text').addEventListener('keydown', e => {
     $('#dlg-compose').close('send')
   }
 })
+
+// ---------- profile ----------
+
+function applyTheme(theme) {
+  if (theme === 'light') document.documentElement.dataset.theme = 'light'
+  else delete document.documentElement.dataset.theme
+  store('nearby.theme', theme === 'light' ? 'light' : 'night')
+  sky.setTheme(theme === 'light' ? 'dawn' : 'night')
+}
+
+function openProfile({welcome = false} = {}) {
+  const draft = {avatar: me.avatar, color: me.color, theme: document.documentElement.dataset.theme === 'light' ? 'light' : 'night'}
+  $('#profile-title').textContent = welcome ? t('welcomeTitle') : t('profileTitle')
+  $('#profile-intro').hidden = !welcome
+  const nameInput = $('#profile-name')
+  nameInput.value = me.name
+
+  const preview = () => {
+    $('#profile-avatar').textContent = draft.avatar
+    $('#profile-preview').dataset.color = String(draft.color)
+    for (const b of $('#profile-avatars').children) b.setAttribute('aria-checked', String(b.textContent === draft.avatar))
+    for (const b of $('#profile-colors').children) b.setAttribute('aria-checked', String(Number(b.dataset.color) === draft.color))
+    for (const b of $('#profile-theme').children) b.setAttribute('aria-checked', String(b.dataset.themeValue === draft.theme))
+  }
+
+  $('#profile-avatars').replaceChildren(...AVATARS.map(a => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.setAttribute('role', 'radio')
+    b.textContent = a
+    b.addEventListener('click', () => { draft.avatar = a; preview() })
+    return b
+  }))
+  $('#profile-colors').replaceChildren(...Array.from({length: COLOR_COUNT}, (_, i) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.setAttribute('role', 'radio')
+    b.setAttribute('aria-label', `${t('pickColor')} ${i + 1}`)
+    b.dataset.color = String(i)
+    b.addEventListener('click', () => { draft.color = i; preview() })
+    return b
+  }))
+  for (const b of $('#profile-theme').children) {
+    b.onclick = () => {
+      draft.theme = b.dataset.themeValue
+      applyTheme(draft.theme) // preview live
+      preview()
+    }
+  }
+  preview()
+
+  const themeBefore = draft.theme
+  showDialog($('#dlg-profile')).then(v => {
+    if (v !== 'save') {
+      applyTheme(themeBefore)
+      return
+    }
+    const name = nameInput.value.trim().slice(0, 40) || me.name
+    Object.assign(me, {name, avatar: draft.avatar, color: draft.color})
+    store('nearby.name', me.name)
+    store('nearby.avatar', me.avatar)
+    store('nearby.color', String(me.color))
+    renderMe()
+    for (const s of allSessions()) s.announce({name: me.name, avatar: me.avatar, color: me.color})
+  })
+  setTimeout(() => nameInput.focus(), 50)
+}
+
+$('#self').addEventListener('click', () => openProfile())
+$('#me-card').addEventListener('click', () => openProfile())
 
 // ---------- pairing ----------
 
@@ -924,7 +1127,7 @@ async function savePairing(request, {vibrate = true} = {}) {
   await ensurePairSession(record)
   toast(t('pairDone', {name: record.name}))
   alertUser({title: t('nPairDone', {name: record.name}), tag: `pair-${record.id}`, vibrate})
-  refreshPairFlags()
+  refreshPeers()
 }
 
 /** The requester confirmed it received our acceptance; now both sides store the pairing. */
@@ -939,7 +1142,8 @@ function askPair(peerId, request, signal, session) {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer) return resolve(false)
     const code = await session.verificationCode(peerId).catch(() => null)
-    $('#pair-title').textContent = t('pairTitle', {name: request.name || peer.info.name})
+    const name = request.name || peer.info.displayName
+    $('#pair-title').textContent = t('pairTitle', {name: `${peer.info.avatar} ${name}`})
     $('#pair-code').textContent = code || '—'
     const dlg = $('#dlg-pair')
     const abort = () => dlg.open && dlg.close('no')
@@ -949,11 +1153,7 @@ function askPair(peerId, request, signal, session) {
     chime()
     flagTitle()
     const tag = `pairreq-${peerId}`
-    alertUser({
-      title: t('nPairRequest', {name: request.name || peer.info.name}),
-      body: code ? t('nPairCode', {code}) : '',
-      tag,
-    })
+    alertUser({title: t('nPairRequest', {name}), body: code ? t('nPairCode', {code}) : '', tag})
     const answer = await showDialog(dlg)
     clearTimeout(timer)
     closeNotification(tag)
@@ -968,7 +1168,7 @@ function unpairRecord(record, notifyPeerId) {
   // Leave the room a moment later so the "unpair" message can go out on it.
   setTimeout(() => stopPairSession(record.id), 800)
   toast(t('unpaired', {name: record.name}))
-  refreshPairFlags()
+  refreshPeers()
 }
 
 function unpairPeer(id) {
@@ -987,11 +1187,12 @@ function renderPairList() {
   const list = $('#pair-list')
   $('#pairs-empty').hidden = pairs.length > 0
   list.replaceChildren(...pairs.map(rec => {
-    const online = [...state.peers.values()].some(p => p.links.has(`pair:${rec.id}`) || (rec.deviceId && p.info.deviceId === rec.deviceId))
+    const online = [...state.peers.values()].some(p => !p.offline && (p.links.has(`pair:${rec.id}`) || (rec.deviceId && p.info.deviceId === rec.deviceId)))
+    const known = knownDevice(rec.deviceId)
     const li = document.createElement('li')
     const name = document.createElement('span')
     name.className = 'pair-name'
-    name.textContent = rec.name
+    name.textContent = `${known?.avatar || defaultAvatar(rec.name, rec.deviceId)} ${known?.nickname || rec.name}`
     const st = document.createElement('span')
     st.className = `pair-state${online ? ' on' : ''}`
     st.textContent = online ? t('online') : t('notConnected')
@@ -1282,7 +1483,8 @@ window.addEventListener('drop', e => {
   hideDropOverlay()
   const files = [...(e.dataTransfer?.files || [])]
   if (!files.length) return
-  const target = radar.selected || (state.peers.size === 1 ? [...state.peers.keys()][0] : null)
+  const online = [...state.peers.entries()].filter(([, p]) => !p.offline)
+  const target = radar.selected || (online.length === 1 ? online[0][0] : null)
   if (target) sendFiles(target, files)
   else setPending({kind: 'files', files})
 })
@@ -1376,20 +1578,7 @@ onNotificationAction(({action, tag}) => {
   }
 })
 
-// ---------- header controls ----------
-
-function isLight() {
-  return document.documentElement.dataset.theme === 'light'
-}
-function renderThemeIcon() {
-  $('#btn-theme').innerHTML = isLight() ? ICONS.moon : ICONS.sun
-}
-$('#btn-theme').addEventListener('click', () => {
-  const next = isLight() ? 'dark' : 'light'
-  document.documentElement.dataset.theme = next
-  store('nearby.theme', next)
-  renderThemeIcon()
-})
+// ---------- language ----------
 
 function applyLanguage() {
   applyStatic()
@@ -1399,9 +1588,10 @@ function applyLanguage() {
   renderMe()
   updateMode()
   for (const [id, p] of state.peers) {
-    radar.upsert(id, p.info, {paired: !!pairFor(id)})
+    upsertNode(id)
     if (p.status.kind !== 'idle') setPeerStatus(id, p.status.kind, {fraction: p.status.fraction})
   }
+  renderTransfers()
 }
 
 $('#btn-lang').addEventListener('click', () => {
@@ -1409,18 +1599,9 @@ $('#btn-lang').addEventListener('click', () => {
   applyLanguage()
 })
 
-$('#me-name').addEventListener('click', () => {
-  const next = prompt(t('renamePrompt'), me.name)?.trim().slice(0, 40)
-  if (!next || next === me.name) return
-  me.name = next
-  store('nearby.name', next)
-  renderMe()
-  for (const s of allSessions()) s.announce({name: next})
-})
-
 // ---------- start ----------
 
-renderThemeIcon()
+if (document.documentElement.dataset.theme === 'light') sky.setTheme('dawn')
 applyLanguage()
 takeSharedItems()
 for (const record of loadPairs()) ensurePairSession(record)
@@ -1428,3 +1609,5 @@ for (const record of loadPairs()) ensurePairSession(record)
 const startCode = codeFromHash()
 if (startCode) enterRoom(startCode)
 else enterLocal()
+
+if (firstRun) openProfile({welcome: true})
