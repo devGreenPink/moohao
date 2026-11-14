@@ -39,6 +39,15 @@ export function fileExt(name) {
   return m ? m[1].toLowerCase() : ''
 }
 
+/** Files that run programs or open as web pages when opened: worth a warning. */
+export const RISKY_EXT = new Set([
+  'exe', 'msi', 'msix', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse',
+  'wsf', 'wsh', 'hta', 'lnk', 'url', 'reg', 'jar', 'apk', 'xapk', 'apks', 'aab', 'app', 'dmg', 'pkg', 'sh',
+  'command', 'run', 'deb', 'rpm', 'appimage', 'iso', 'html', 'htm', 'xhtml', 'mht', 'docm', 'xlsm', 'pptm',
+  'dotm', 'xltm',
+])
+export const isRisky = name => RISKY_EXT.has(fileExt(name))
+
 /** Which file the byte counter is in. */
 function currentFile(files, done) {
   let acc = 0

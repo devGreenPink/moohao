@@ -245,6 +245,8 @@ export function createSession({roomId, password}, me, handlers) {
     onRequest: async (data, {peerId, signal}) => {
       if (!validOffer(data) || incoming.has(data.tid)) return {ok: false}
       const sink = await handlers.onOffer(peerId, data, signal).catch(() => null)
+      // too many offers from this device at once: say so, so the sender can try again later
+      if (sink === 'busy') return {ok: false, busy: true}
       if (!sink || signal?.aborted || withdrawn.has(data.tid) || !peers.has(peerId)) {
         sink?.abort()
         return {ok: false}
@@ -699,7 +701,7 @@ export function createSession({roomId, password}, me, handlers) {
             out.settle('failed')
           }
         }
-        if (!out.result && !answer?.ok) out.settle('declined')
+        if (!out.result && !answer?.ok) out.settle(answer?.busy ? 'busy' : 'declined')
         if (out.result) return onStatus(out.result, 0, total)
 
         out.flow = !!answer.flow

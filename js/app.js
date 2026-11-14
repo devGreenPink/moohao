@@ -13,7 +13,7 @@ import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
 import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
-import {createTransferList, fmtSize, fmtTime, fileExt} from './ui/transfers.js'
+import {createTransferList, fmtSize, fmtTime, fileExt, isRisky} from './ui/transfers.js'
 import {createInbox} from './ui/inbox.js'
 import {createSky} from './ui/sky.js'
 import {effectsOn, powerSetting, setPowerSetting, isLite, liteReason, onPowerChange} from './ui/effects.js'
@@ -652,7 +652,7 @@ function transferNote(x) {
   let note = ''
   if (s === 'failed') note = out ? t('xNoteFailedOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteFailedIn')
   else if (s === 'cancelled') note = out ? t('xNoteCancelledOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteCancelledIn')
-  else if (s === 'declined') note = t('xNoteDeclined', {name})
+  else if (s === 'declined') note = t(x.busy ? 'xNoteBusy' : 'xNoteDeclined', {name})
   else if (s === 'done' && !out) {
     // (nothing to say about in-page files once they've been deleted from the received list)
     if (x.sinkKind !== 'memory') note = t(x.sinkKind === 'disk' ? 'xNoteDoneDisk' : 'xNoteDoneStream')
@@ -873,6 +873,13 @@ async function sendFiles(id, files) {
     await session.sendFiles(id, files, thumbs,
       (status, sent) => {
         if (!myTid) return
+        if (status === 'busy') {
+          // the other device is getting too many offers at once: shown as "not accepted",
+          // with a note to try again shortly rather than "they didn't want it"
+          const x = state.xfers.get(myTid)
+          if (x) x.busy = true
+          status = 'declined'
+        }
         if (status === 'sending') return transferProgress(myTid, sent)
         if (status === 'waiting') return
         if (status === 'reconnecting') {
@@ -1051,13 +1058,17 @@ const FLOOD_RULES = {
 const FLOOD_MUTE_MS = 2 * 60_000
 const flood = new Map() // peerId -> {mutedUntil, told, offer|pair|text: {pending, times}}
 
-/** May this device open one more dialog of this kind right now? */
+/**
+ * May this device open one more dialog of this kind right now? Returns a ticket (the time
+ * it was let in) or 0. Accepted offers are taken off the per-minute count again (release
+ * with forget), so someone sending batch after batch that gets accepted is never muted.
+ */
 function admit(peerId, kind) {
   const rule = FLOOD_RULES[kind]
   const now = Date.now()
   let f = flood.get(peerId)
   if (!f) flood.set(peerId, (f = {mutedUntil: 0, told: false}))
-  if (now < f.mutedUntil) return false
+  if (now < f.mutedUntil) return 0
   if (f.mutedUntil) {
     f.mutedUntil = 0
     f.told = false
@@ -1070,40 +1081,59 @@ function admit(peerId, kind) {
       f.told = true
       toast(t('floodMuted', {name: nameOf(peerId)}), 5000)
     }
-    return false
+    return 0
   }
-  if (k.pending >= rule.pending) return false
+  if (k.pending >= rule.pending) return 0
   k.times.push(now)
   k.pending++
-  return true
+  return now
 }
 
-function release(peerId, kind) {
+function release(peerId, kind, ticket = 0, forget = false) {
   const k = flood.get(peerId)?.[kind]
-  if (k) k.pending = Math.max(0, k.pending - 1)
+  if (!k) return
+  k.pending = Math.max(0, k.pending - 1)
+  if (forget) {
+    const i = k.times.indexOf(ticket)
+    if (i >= 0) k.times.splice(i, 1)
+  }
+}
+
+/**
+ * Wrap a queued dialog task so its promise always settles: if the task throws, resolve with
+ * `fallback` (otherwise the caller, and the flood slot it holds, would wait forever).
+ */
+function settleOnError(resolve, fallback, task) {
+  return async () => {
+    try {
+      await task()
+    } catch (err) {
+      resolve(fallback)
+      throw err
+    }
+  }
 }
 
 // ---------- incoming offers ----------
 
-/** Files that run programs or open as web pages when opened: worth a warning. */
-const RISKY_EXT = new Set([
-  'exe', 'msi', 'msix', 'bat', 'cmd', 'com', 'scr', 'pif', 'cpl', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse',
-  'wsf', 'wsh', 'hta', 'lnk', 'url', 'reg', 'jar', 'apk', 'xapk', 'apks', 'aab', 'app', 'dmg', 'pkg', 'sh',
-  'command', 'run', 'deb', 'rpm', 'appimage', 'iso', 'html', 'htm', 'xhtml', 'mht', 'docm', 'xlsm', 'pptm',
-  'dotm', 'xltm',
-])
-const isRisky = name => RISKY_EXT.has(fileExt(name))
-
-function askOffer(peerId, data, signal, session) {
-  if (!admit(peerId, 'offer')) return Promise.resolve(null)
+/** Returns a sink, null (declined) or 'busy' (too many offers from this device right now). */
+async function askOffer(peerId, data, signal, session) {
+  const ticket = admit(peerId, 'offer')
+  if (!ticket) return 'busy'
   // Names are shown and saved as-is, so drop invisible direction marks first: they can make
   // "invoice[RLO]gpj.exe" look like "invoiceexe.jpg".
   for (const f of data.files) f.name = cleanFileName(f.name)
-  return offerDialog(peerId, data, signal, session).finally(() => release(peerId, 'offer'))
+  let sink = null
+  try {
+    sink = await offerDialog(peerId, data, signal, session)
+    return sink
+  } finally {
+    release(peerId, 'offer', ticket, !!sink)
+  }
 }
 
 function offerDialog(peerId, data, signal, session) {
-  return new Promise(resolve => enqueue(async () => {
+  return new Promise(resolve => enqueue(settleOnError(resolve, null, async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer || state.withdrawn.has(data.tid)) return resolve(null)
     const name = peer.info.displayName
@@ -1174,7 +1204,7 @@ function offerDialog(peerId, data, signal, session) {
     addTransfer(data.tid, {peerId, session, dir: 'in', sinkKind: sink.kind, files: data.files.map(f => ({...f, thumb: safeThumb(f.thumb)}))})
     transferProgress(data.tid, 0)
     resolve(sink)
-  }))
+  })))
 }
 
 /** The sender's connection dropped mid-transfer; it may come back and resume. */
@@ -1505,7 +1535,7 @@ function askPair(peerId, request, signal, session) {
 }
 
 function pairDialog(peerId, request, signal, session) {
-  return new Promise(resolve => enqueue(async () => {
+  return new Promise(resolve => enqueue(settleOnError(resolve, false, async () => {
     const peer = state.peers.get(peerId)
     if (signal?.aborted || !peer) return resolve(false)
     const code = await session.verificationCode(peerId).catch(() => null)
@@ -1526,7 +1556,7 @@ function pairDialog(peerId, request, signal, session) {
     closeNotification(tag)
     signal?.removeEventListener('abort', abort)
     resolve(answer === 'yes' && !signal?.aborted)
-  }))
+  })))
 }
 
 function unpairRecord(record, notifyPeerId) {

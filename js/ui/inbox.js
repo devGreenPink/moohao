@@ -8,7 +8,7 @@
 
 import {t, lang} from '../i18n.js'
 import {ICONS} from './mascot.js'
-import {fmtSize, fileExt} from './transfers.js'
+import {fmtSize, fileExt, isRisky} from './transfers.js'
 
 const $ = sel => document.querySelector(sel)
 
@@ -166,6 +166,14 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
     const sub = document.createElement('span')
     sub.textContent = fmtSize(it.size)
     meta.append(name, sub)
+    // the offer warned about it; say it again here, where the file is saved and opened
+    if (isRisky(it.name)) {
+      li.classList.add('risky')
+      const warn = document.createElement('small')
+      warn.className = 'risky-tag'
+      warn.textContent = t('riskyTag')
+      meta.append(warn)
+    }
 
     const acts = document.createElement('div')
     acts.className = 'file-actions'

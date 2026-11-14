@@ -3,7 +3,7 @@
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.12.0'
+const VERSION = 'nearby-v2.12.1'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 

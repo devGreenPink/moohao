@@ -223,14 +223,21 @@ export function createSky({canvas, twinkleLayer, shootLayer}) {
 
     // four-point sparkles, mostly in the upper part of the sky
     const sparkles = Math.round(Math.min(46, Math.max(14, (w * h) / 38000)))
+    // (the glow is a small radial gradient, not shadowBlur: blurred shadows are slow to
+    // rasterise on a big high-DPI canvas, and the sky repaints on resize / theme change)
     ctx.save()
-    ctx.shadowColor = p.sparkleGlow
     for (let i = 0; i < sparkles; i++) {
       const x = rand() * w
       const y = Math.pow(rand(), 1.6) * h * 0.78
       const r = 2.2 + Math.pow(rand(), 2) * 5
-      ctx.shadowBlur = r * 2.2
       ctx.globalAlpha = 0.55 + rand() * 0.45
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 2.4)
+      glow.addColorStop(0, p.sparkleGlow)
+      glow.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = glow
+      ctx.globalAlpha *= 0.45
+      ctx.fillRect(x - r * 2.4, y - r * 2.4, r * 4.8, r * 4.8)
+      ctx.globalAlpha /= 0.45
       sparklePath(ctx, x, y, r)
       ctx.fillStyle = p.sparkles[i % p.sparkles.length]
       ctx.fill()
