@@ -28,5 +28,19 @@ npm run serve        # http://localhost:8080
 npm run build:vendor # rebuild vendor/vendor.js after upgrading trystero / qrcode-generator
 ```
 
+### Project layout
+
+| Path | What it does |
+|---|---|
+| `index.html`, `css/style.css` | Page markup and the night-radar theme (with a light "dawn" variant) |
+| `js/app.js` | App wiring: state, rooms, dialogs, paste/drop, transfers |
+| `js/net.js` | Networking: network detection, Trystero rooms, offer/accept, file and text transfer |
+| `js/i18n.js` | Thai / English strings |
+| `js/ui/radar.js` | Radar with device buttons (placement, selection, progress, keyboard) |
+| `js/ui/panel.js` | Side panel: selected device / pick prompt / searching / help / error |
+| `js/ui/status.js` | Hero heading and scan bar states (searching, found, none, error) |
+| `js/ui/mascot.js` | Device mascot SVGs and line icons |
+| `js/ui/sky.js` | Decorative twinkling stars |
+
 The site is plain HTML/CSS/JS with no build step. `vendor/vendor.js` is a pre-bundled copy of the two
 dependencies and is committed so GitHub Pages can serve the repo root as-is.

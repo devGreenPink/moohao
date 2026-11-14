@@ -38,19 +38,34 @@ async function sha256Hex(text) {
  * a hash of that address groups everyone on the same network (the same idea Snapdrop's
  * server uses). Returns null if the address can't be fetched.
  */
-export async function detectNetworkRoom() {
-  try {
+const IP_SERVICES = [
+  'https://api.ipify.org',
+  'https://ipv4.icanhazip.com',
+  'https://v4.ident.me',
+]
+
+async function fetchPublicIPv4() {
+  for (const url of IP_SERVICES) {
     const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 6000)
-    const res = await fetch('https://api.ipify.org?format=json', {signal: ctrl.signal, cache: 'no-store'})
-    clearTimeout(timer)
-    const {ip} = await res.json()
-    if (!ip) return null
-    const hash = await sha256Hex(`${APP_ID}|${ip}`)
-    return {roomId: `net-${hash.slice(0, 32)}`, password: hash.slice(32)}
-  } catch {
-    return null
+    const timer = setTimeout(() => ctrl.abort(), 5000)
+    try {
+      const res = await fetch(url, {signal: ctrl.signal, cache: 'no-store'})
+      const ip = (await res.text()).trim()
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip
+    } catch {
+      // try the next service
+    } finally {
+      clearTimeout(timer)
+    }
   }
+  return null
+}
+
+export async function detectNetworkRoom() {
+  const ip = await fetchPublicIPv4()
+  if (!ip) return null
+  const hash = await sha256Hex(`${APP_ID}|${ip}`)
+  return {roomId: `net-${hash.slice(0, 32)}`, password: hash.slice(32)}
 }
 
 export function codeRoom(code) {
