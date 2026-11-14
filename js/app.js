@@ -13,7 +13,8 @@ import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
 import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
-import {createTransferList, fmtSize} from './ui/transfers.js'
+import {createTransferList, fmtSize, fmtTime} from './ui/transfers.js'
+import {createInbox} from './ui/inbox.js'
 import {createSky} from './ui/sky.js'
 import {effectsOn, powerSetting, setPowerSetting, isLite, liteReason, onPowerChange} from './ui/effects.js'
 
@@ -25,6 +26,10 @@ const SEARCH_GRACE_MS = 15_000
 /** Finished transfers stay in the floating tray this long, and in the side panel longer. */
 const TRAY_LINGER_MS = 8_000
 const PANEL_LINGER_MS = 60_000
+/** Failed / cancelled / declined cards stay until removed (or this long), so they can be retried. */
+const PROBLEM_LINGER_MS = 15 * 60_000
+/** How long a dropped transfer waits for the other device (matches RESUME_WAIT_MS in net.js). */
+const RESUME_WAIT_S = 90
 
 // ---------- small helpers ----------
 
@@ -249,9 +254,10 @@ function describePeer(info, status, tier) {
 
 const radar = createRadar($('#radar'), {
   onActivate: id => onNodeActivate(id),
-  onDropFiles: (id, files) => {
+  onDropFiles: (id, dataTransfer) => {
     hideDropOverlay()
-    sendFiles(id, files)
+    const files = filesFromDrop(dataTransfer)
+    if (files.length) sendFiles(id, files)
   },
   describe: describePeer,
 })
@@ -271,13 +277,12 @@ const panel = createPanel($('#panel'), {
 })
 
 const transferHandlers = {
-  onCancel: (peerId, tid) => state.xfers.get(tid)?.session.cancel(tid),
-  onOpen: tid => {
-    const x = state.xfers.get(tid)
-    if (x?.results) showReceived(x.peerId, x.results, {quiet: true})
-  },
+  onCancel: (peerId, tid) => confirmCancel(tid),
+  onOpen: () => inbox.open(),
+  onRetry: tid => retryTransfer(tid),
+  onDismiss: tid => dismissTransfers([tid]),
 }
-const trayList = createTransferList($('#tray'), {compact: true, ...transferHandlers, onSelect: id => state.peers.has(id) && selectPeer(id)})
+const trayList = createTransferList($('#tray-list'), {compact: true, ...transferHandlers, onSelect: id => state.peers.has(id) && selectPeer(id)})
 const panelList = createTransferList(panel.transferContainer, transferHandlers)
 
 const scan = createScanStatus(document.body)
@@ -487,13 +492,18 @@ function panelTransfers(id) {
  * record: {tid, peerId, session, dir, files, total, done, status, speed, eta, start, base,
  *          results?, finishedAt?}
  */
-function addTransfer(tid, {peerId, session, dir, files}) {
+function addTransfer(tid, {peerId, session, dir, files, sources = null, sinkKind = null}) {
   const firstActive = activeCount() === 0
+  const info = state.peers.get(peerId)?.info
   state.xfers.set(tid, {
-    tid, peerId, session, dir,
+    tid, peerId, session, dir, sinkKind,
+    // the original File objects, so a failed send can be retried (outgoing only)
+    sources,
+    // shown if the device has left the radar by the time the card is read
+    peer: {displayName: info?.displayName || '?', avatar: info?.avatar || 'planet', color: info?.color ?? 0},
     files: files.map(f => ({name: f.name, size: f.size, type: f.type, thumb: f.thumb || null})),
     total: files.reduce((s, f) => s + f.size, 0),
-    done: 0, status: 'waiting', speed: 0, eta: 0, start: 0, base: 0, finishedAt: 0,
+    done: 0, status: 'waiting', speed: 0, eta: 0, start: 0, base: 0, finishedAt: 0, pausedAt: 0,
   })
   if (me.device !== 'desktop' && firstActive) toast(t('keepOpen'), 5000)
   updateWakeLock()
@@ -510,6 +520,8 @@ function transferProgress(tid, done) {
     x.start = now
     x.base = done
     x.status = 'active'
+    x.pausedAt = 0
+    updateTicker()
     if (!x.launched) {
       x.launched = true
       radar.launch(x.peerId, x.dir) // a comet flies off (or in) as the bytes start moving
@@ -526,7 +538,9 @@ function transferProgress(tid, done) {
 function transferState(tid, status) {
   const x = state.xfers.get(tid)
   if (!x) return
+  if (status === 'reconnecting' && x.status !== 'reconnecting') x.pausedAt = Date.now()
   x.status = status
+  updateTicker()
   if (!ACTIVE.has(status)) {
     x.finishedAt = Date.now()
     if (status === 'done') {
@@ -543,22 +557,110 @@ function transferState(tid, status) {
       if (state.peers.get(x.peerId)?.offline && !activeWith(x.peerId).length) removePeerNow(x.peerId)
     }, 4000)
     setTimeout(scheduleTransferRender, TRAY_LINGER_MS + 50)
+    // A finished card goes away by itself; a problem stays until the user deals with it.
     setTimeout(() => {
+      if (state.xfers.get(tid) !== x) return
       state.xfers.delete(tid)
       scheduleTransferRender()
-    }, PANEL_LINGER_MS + 50)
+    }, (status === 'done' ? PANEL_LINGER_MS : PROBLEM_LINGER_MS) + 50)
   }
   scheduleTransferRender()
 }
 
+/** Seconds a dropped transfer will still wait for the other device. */
+function waitLeft(x) {
+  return Math.max(0, RESUME_WAIT_S - (Date.now() - x.pausedAt) / 1000)
+}
+
+// While something is reconnecting, redraw once a second so its countdown moves.
+let tickTimer = 0
+function updateTicker() {
+  const need = [...state.xfers.values()].some(x => x.status === 'reconnecting')
+  if (need && !tickTimer) tickTimer = setInterval(scheduleTransferRender, 1000)
+  else if (!need && tickTimer) {
+    clearInterval(tickTimer)
+    tickTimer = 0
+  }
+}
+
+const PROBLEM = new Set(['failed', 'cancelled', 'declined'])
+
+/** Remove finished cards from the lists. No data is touched (received files live in the inbox). */
+function dismissTransfers(tids) {
+  for (const tid of tids) {
+    const x = state.xfers.get(tid)
+    if (x && !isActive(x)) state.xfers.delete(tid)
+  }
+  scheduleTransferRender()
+}
+
+function finishedIn(list) {
+  return list.filter(x => !isActive(x)).map(x => x.tid)
+}
+
+async function confirmCancel(tid) {
+  const x = state.xfers.get(tid)
+  if (!x || !isActive(x)) return
+  // An offer nobody has answered yet can go without asking: nothing has moved.
+  if (x.status !== 'waiting') {
+    const name = nameOfTransfer(x)
+    const ok = await confirmBox({
+      title: t(x.dir === 'out' ? 'cancelQOut' : 'cancelQIn', {name}),
+      body: t(x.dir === 'out' ? 'cancelBodyOut' : 'cancelBodyIn', {name}),
+      ok: t(x.dir === 'out' ? 'cancelTransfer' : 'cancelReceive'),
+      cancel: t('keepGoing'),
+    })
+    if (!ok) return
+  }
+  if (isActive(x)) x.session.cancel(tid)
+}
+
+function retryTransfer(tid) {
+  const x = state.xfers.get(tid)
+  if (!x?.sources?.length || !peerReachable(x.peerId)) return
+  // One send per device at a time: keep this card until the current one is done.
+  if (state.sendingTo.has(x.peerId) || activeWith(x.peerId).some(([, o]) => o.dir === 'out')) return toast(t('busy'))
+  state.xfers.delete(tid)
+  sendFiles(x.peerId, x.sources)
+}
+
+function nameOfTransfer(x) {
+  return state.peers.get(x.peerId)?.info.displayName || x.peer.displayName
+}
+
+function peerReachable(id) {
+  const p = state.peers.get(id)
+  return !!p && !p.offline && !!sessionFor(id)
+}
+
+/** What happened / what happens next, in plain words, for the card. */
+function transferNote(x) {
+  const name = nameOfTransfer(x)
+  const s = x.status
+  const out = x.dir === 'out'
+  if (s === 'reconnecting') return t(out ? 'xNoteReconnectOut' : 'xNoteReconnectIn', {name, t: fmtTime(waitLeft(x))})
+  let note = ''
+  if (s === 'failed') note = out ? t('xNoteFailedOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteFailedIn')
+  else if (s === 'cancelled') note = out ? t('xNoteCancelledOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteCancelledIn')
+  else if (s === 'declined') note = t('xNoteDeclined', {name})
+  else if (s === 'done' && !out) note = t(x.sinkKind === 'memory' ? 'xNoteDoneMem' : x.sinkKind === 'disk' ? 'xNoteDoneDisk' : 'xNoteDoneStream')
+  if (out && PROBLEM.has(s) && x.sources && !peerReachable(x.peerId)) note += ' ' + t('xNoteOffline', {name})
+  return note
+}
+
 function viewModel(x) {
-  const p = state.peers.get(x.peerId)
-  const info = p?.info || {displayName: '?', avatar: 'planet', color: 0}
+  const info = state.peers.get(x.peerId)?.info || x.peer
+  const problem = PROBLEM.has(x.status)
   return {
     tid: x.tid, peerId: x.peerId, dir: x.dir, status: x.status, files: x.files,
     done: x.done, total: x.total, speed: x.speed, eta: x.eta,
     peer: {displayName: info.displayName, avatar: info.avatar, color: info.color},
-    canOpen: x.status === 'done' && !!x.results,
+    note: transferNote(x),
+    actions: {
+      open: x.status === 'done' && x.dir === 'in' && x.sinkKind === 'memory' && inbox.has(x.tid),
+      retry: problem && x.dir === 'out' && !!x.sources?.length && peerReachable(x.peerId),
+      dismiss: problem,
+    },
   }
 }
 
@@ -582,11 +684,17 @@ function renderTransfers() {
   const sel = radar.selected
   // On wide screens the side panel is always in view, so the tray skips what it already shows.
   const panelShows = sel && sideBySide.matches
-  trayList.render(list
-    .filter(x => (isActive(x) || now - x.finishedAt < TRAY_LINGER_MS) && !(panelShows && x.peerId === sel))
-    .map(viewModel))
-  const inPanel = sel ? list.filter(x => x.peerId === sel && (isActive(x) || now - x.finishedAt < PANEL_LINGER_MS)) : []
+  // Problems stay listed until removed; successful transfers fade out on their own.
+  const visible = (x, linger) => isActive(x) || x.status !== 'done' || now - x.finishedAt < linger
+  const inTray = list.filter(x => visible(x, TRAY_LINGER_MS) && !(panelShows && x.peerId === sel))
+  trayList.render(inTray.map(viewModel))
+  $('#tray').hidden = !inTray.length
+  state.trayFinished = finishedIn(inTray)
+  $('#tray-head').hidden = !state.trayFinished.length
+  const inPanel = sel ? list.filter(x => x.peerId === sel && visible(x, PANEL_LINGER_MS)) : []
   panelList.render(inPanel.map(viewModel))
+  state.panelFinished = finishedIn(inPanel)
+  $('#panel-xfers-clear').hidden = !state.panelFinished.length
   // particle beams on the radar for transfers that are moving bytes
   const beams = new Map()
   for (const x of list) if (x.status === 'active') beams.set(x.peerId, x.dir)
@@ -622,9 +730,12 @@ async function updateWakeLock() {
 // The browser drops the wake lock whenever the page is hidden; take it back on return.
 document.addEventListener('visibilitychange', updateWakeLock)
 
-// Closing the tab mid-transfer would lose it; ask first.
+$('#tray-clear').addEventListener('click', () => dismissTransfers(state.trayFinished || []))
+$('#panel-xfers-clear').addEventListener('click', () => dismissTransfers(state.panelFinished || []))
+
+// Closing the tab mid-transfer, or with received files not saved yet, would lose them; ask first.
 window.addEventListener('beforeunload', e => {
-  if (!activeCount()) return
+  if (!activeCount() && !inbox.unsaved) return
   e.preventDefault()
   e.returnValue = ''
 })
@@ -758,7 +869,7 @@ async function sendFiles(id, files) {
       },
       tid => {
         myTid = tid
-        addTransfer(tid, {peerId: id, session, dir: 'out', files: files.map((f, i) => ({name: f.name, size: f.size, type: f.type, thumb: thumbs[i]}))})
+        addTransfer(tid, {peerId: id, session, dir: 'out', sources: files, files: files.map((f, i) => ({name: f.name, size: f.size, type: f.type, thumb: thumbs[i]}))})
         setPeerStatus(id, 'waiting')
       })
   } finally {
@@ -802,6 +913,23 @@ function showDialog(dlg) {
     dlg.addEventListener('close', () => resolve(dlg.returnValue), {once: true})
     dlg.showModal()
   })
+}
+
+/**
+ * Ask before something that can't be undone. Resolves true for "yes".
+ * The safe choice comes first and has focus, so Enter / Esc never destroy anything.
+ */
+async function confirmBox({title, body = '', ok, cancel = t('cancel')}) {
+  const dlg = $('#dlg-confirm')
+  if (dlg.open) return false
+  $('#confirm-title').textContent = title
+  $('#confirm-body').textContent = body
+  $('#confirm-body').hidden = !body
+  $('#confirm-yes').textContent = ok
+  $('#confirm-no').textContent = cancel
+  const answer = showDialog(dlg)
+  $('#confirm-no').focus()
+  return (await answer) === 'yes'
 }
 
 // Incoming offers / files / messages / pair requests are shown one at a time.
@@ -882,7 +1010,19 @@ function askOffer(peerId, data, signal, session) {
     const total = data.files.reduce((s, f) => s + f.size, 0)
     $('#offer-title').textContent = t('incomingTitle', {name})
     $('#offer-summary').textContent = t('filesCount', {n: data.files.length, size: fmtSize(total)})
-    $('#offer-files').replaceChildren(...data.files.slice(0, 50).map(f => fileRow(f, {thumb: safeThumb(f.thumb)})))
+    const rows = data.files.slice(0, 50).map(f => fileRow(f, {thumb: safeThumb(f.thumb)}))
+    if (data.files.length > 50) {
+      const more = document.createElement('li')
+      more.className = 'more'
+      more.textContent = t('moreFiles', {n: data.files.length - 50})
+      rows.push(more)
+    }
+    $('#offer-files').replaceChildren(...rows)
+    // Say what happens after "Accept" (save picker, straight to Downloads, or preview here).
+    $('#offer-note').textContent = total <= MEMORY_SINK_LIMIT ? t('offerNoteMem')
+      : diskSupported(data.files.length) ? t('offerNoteDisk')
+      : streamSupported() ? t('offerNoteStream')
+      : total > MEMORY_FALLBACK_LIMIT ? t('tooBigHere', {size: fmtSize(total)}) : t('offerNoteMem')
     const code = await session.verificationCode(peerId).catch(() => null)
     $('#offer-verify').hidden = !code
     $('#offer-code').textContent = code || ''
@@ -920,7 +1060,7 @@ function askOffer(peerId, data, signal, session) {
       return resolve(null)
     }
     state.incoming.set(data.tid, {sink, peerId})
-    addTransfer(data.tid, {peerId, session, dir: 'in', files: data.files.map(f => ({...f, thumb: safeThumb(f.thumb)}))})
+    addTransfer(data.tid, {peerId, session, dir: 'in', sinkKind: sink.kind, files: data.files.map(f => ({...f, thumb: safeThumb(f.thumb)}))})
     transferProgress(data.tid, 0)
     resolve(sink)
   }))
@@ -948,13 +1088,16 @@ function onIncomingDone(peerId, tid) {
   const inc = state.incoming.get(tid)
   state.incoming.delete(tid)
   const x = state.xfers.get(tid)
-  if (x && inc?.sink.kind === 'memory') x.results = inc.sink.results
+  if (inc?.sink.kind === 'memory') {
+    const info = state.peers.get(peerId)?.info || x?.peer || {displayName: '?', color: 0}
+    inbox.add(tid, {from: info.displayName, color: info.color}, inc.sink.results)
+  }
   transferState(tid, 'done')
   setPeerStatus(peerId, 'done', {fraction: 1})
   if (!inc) return
   const files = x?.files || []
   alertUser({title: t('nReceived', {n: files.length, name: nameOf(peerId)}), body: fileNames(files), tag: `recv-${tid}`})
-  if (inc.sink.kind === 'memory') showReceived(peerId, inc.sink.results)
+  if (inc.sink.kind === 'memory') showReceived(peerId, tid)
   else if (inc.sink.kind === 'disk') toast(t('savedToDisk', {n: files.length}), 4000)
   else toast(t('downloadSaved'), 4000)
 }
@@ -965,31 +1108,36 @@ function onIncomingFailed(peerId, tid, reason) {
   setPeerStatus(peerId, reason === 'cancelled' ? 'cancelled' : 'failed')
 }
 
-function showReceived(peerId, files, {quiet = false} = {}) {
+/** New files arrived: show them in the received-files list (newest group on top). */
+function showReceived(peerId, tid) {
   const name = nameOf(peerId)
-  enqueue(async () => {
-    const urls = files.map(f => URL.createObjectURL(f.blob))
-    $('#received-title').textContent = t('receivedTitle', {name})
-    $('#received-files').replaceChildren(...files.map((f, i) =>
-      fileRow(f, {url: urls[i], thumb: /^image\//.test(f.type) ? urls[i] : null})))
-    $('#received-all').hidden = files.length < 2
-    if (!quiet) {
-      chime()
-      flagTitle()
-    }
-    await showDialog($('#dlg-received'))
-    // Give any download that was just started time to finish before releasing memory.
-    setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 60_000)
-  })
+  chime()
+  flagTitle()
+  const title = t('receivedTitle', {name})
+  if (inbox.isOpen()) return inbox.open({title, highlight: tid})
+  enqueue(() => (inbox.has(tid) ? inbox.open({title, highlight: tid}) : null))
 }
 
-$('#received-all').addEventListener('click', async () => {
-  const links = [...$('#received-files').querySelectorAll('a[download]')]
-  for (const a of links) {
-    a.click()
-    await new Promise(r => setTimeout(r, 400))
-  }
+const inbox = createInbox({
+  confirmBox,
+  showDialog,
+  toast,
+  onChange: () => {
+    renderInboxButton()
+    scheduleTransferRender() // "View files" buttons depend on what's still here
+  },
 })
+
+function renderInboxButton() {
+  const btn = $('#btn-inbox')
+  const n = inbox.count
+  btn.hidden = n === 0
+  $('#inbox-count').textContent = n > 99 ? '99+' : String(n)
+  const label = t('inboxCount', {n})
+  btn.title = label
+  btn.setAttribute('aria-label', label)
+}
+$('#btn-inbox').addEventListener('click', () => inbox.open())
 
 function linkFrom(text) {
   const s = text.trim()
@@ -1031,16 +1179,21 @@ function openCompose(id, prefill = '') {
   $('#compose-title').textContent = t('sendTextTo', {name: nameOf(id)})
   const ta = $('#compose-text')
   ta.value = prefill
+  $('#compose-send').disabled = !prefill.trim()
   showDialog($('#dlg-compose')).then(v => {
     if (v === 'send' && composePeer) sendText(composePeer, ta.value)
     composePeer = null
   })
   setTimeout(() => ta.focus(), 50)
 }
+// Nothing to send until something is typed.
+$('#compose-text').addEventListener('input', e => {
+  $('#compose-send').disabled = !e.target.value.trim()
+})
 $('#compose-text').addEventListener('keydown', e => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault()
-    $('#dlg-compose').close('send')
+    if (e.target.value.trim()) $('#dlg-compose').close('send')
   }
 })
 
@@ -1256,9 +1409,13 @@ function unpairRecord(record, notifyPeerId) {
   refreshPeers()
 }
 
-function unpairPeer(id) {
+function confirmUnpair(record) {
+  return confirmBox({title: t('unpairConfirm', {name: record.name}), body: t('unpairBody'), ok: t('unpairOk')})
+}
+
+async function unpairPeer(id) {
   const record = pairFor(id)
-  if (!record || !confirm(t('unpairConfirm', {name: record.name}))) return
+  if (!record || !(await confirmUnpair(record))) return
   unpairRecord(record, id)
 }
 
@@ -1287,8 +1444,8 @@ function renderPairList() {
     btn.type = 'button'
     btn.className = 'btn small ghost'
     btn.textContent = t('unpair')
-    btn.addEventListener('click', () => {
-      if (!confirm(t('unpairConfirm', {name: rec.name}))) return
+    btn.addEventListener('click', async () => {
+      if (!(await confirmUnpair(rec))) return
       const peerId = [...state.peers.entries()].find(([, p]) => p.links.has(`pair:${rec.id}`) || (rec.deviceId && p.info.deviceId === rec.deviceId))?.[0]
       unpairRecord(rec, peerId || null)
       renderPairList()
@@ -1362,6 +1519,17 @@ async function switchSession(config) {
   if (config) state.main = createSession(config, me, makeHandlers('main'))
 }
 
+/** Transfers running through the network / room session (pair sessions aren't affected). */
+function mainBusy() {
+  return [...state.xfers.values()].some(x => isActive(x) && x.session === state.main)
+}
+
+/** Switching to another room stops transfers in this one, so ask first if any are running. */
+async function okToSwitch() {
+  if (!mainBusy()) return true
+  return confirmBox({title: t('switchQ'), body: t('leaveBodyBusy'), ok: t('switchOk')})
+}
+
 async function enterRoom(code) {
   state.mode = 'room'
   state.code = code
@@ -1401,7 +1569,8 @@ async function enterLocal() {
  * Look up the public address again and move to the new network's room if it changed.
  */
 async function recheckNetwork(force = false) {
-  if (state.mode === 'room' || state.checkingNet) return
+  // Never move rooms under a running transfer; the next check after it ends will do it.
+  if (state.mode === 'room' || state.checkingNet || mainBusy()) return
   if (!force && Date.now() - state.lastNetCheck < 15_000) return
   state.checkingNet = true
   state.lastNetCheck = Date.now()
@@ -1472,25 +1641,57 @@ function joinTyped() {
     $('#room-input').focus()
     return
   }
-  $('#dlg-room').close()
-  enterRoom(code)
+  if (code === state.code) return $('#dlg-room').close()
+  okToSwitch().then(ok => {
+    if (!ok) return
+    $('#dlg-room').close()
+    enterRoom(code)
+  })
 }
 $('#room-input').addEventListener('input', () => { $('#room-error').hidden = true })
 
-$('#room-scan').addEventListener('click', () => {
+async function cameraPermission() {
+  try {
+    return (await navigator.permissions.query({name: 'camera'})).state
+  } catch {
+    return 'prompt' // some browsers can't tell; explain first, then let the browser ask
+  }
+}
+
+/** The scanner dialog: explain the camera first (unless it's already allowed), then scan. */
+$('#room-scan').addEventListener('click', async () => {
   const dialog = $('#dlg-scan')
   let found = null
-  showDialog(dialog).then(() => {
-    if (!found) return
+  const ask = $('#scan-ask')
+  const view = $('#scan-view')
+  const showAsk = kind => {
+    view.hidden = true
+    ask.hidden = false
+    ask.dataset.kind = kind
+    $('#scan-ask-title').textContent = t(kind === 'denied' ? 'camDeniedTitle' : 'camAskTitle')
+    $('#scan-ask-body').textContent = t(kind === 'denied' ? 'camDeniedHelp' : 'camAskBody')
+    $('#scan-allow').textContent = t(kind === 'denied' ? 'tryAgain' : 'camAllow')
+  }
+  const setStatus = key => {
+    $('#scan-status').textContent = key === 'camDenied' ? '' : t(key)
+    if (key === 'camDenied') showAsk('denied')
+  }
+  const start = () => {
+    ask.hidden = true
+    view.hidden = false
+    runScanner({dialog, video: $('#scan-video'), setStatus, accept: text => (found = codeFromText(text))})
+  }
+  $('#scan-allow').onclick = start
+  $('#scan-status').textContent = ''
+  const perm = await cameraPermission()
+  showDialog(dialog).then(async () => {
+    if (!found || found === state.code) return
+    if (!(await okToSwitch())) return
     if ($('#dlg-room').open) $('#dlg-room').close()
-    if (found !== state.code) enterRoom(found)
+    enterRoom(found)
   })
-  runScanner({
-    dialog,
-    video: $('#scan-video'),
-    setStatus: key => { $('#scan-status').textContent = t(key) },
-    accept: text => (found = codeFromText(text)),
-  })
+  if (perm === 'granted') start()
+  else showAsk(perm === 'denied' ? 'denied' : 'ask')
 })
 $('#room-join').addEventListener('click', joinTyped)
 $('#room-input').addEventListener('keydown', e => {
@@ -1502,14 +1703,22 @@ $('#room-input').addEventListener('keydown', e => {
 $('#room-copy').addEventListener('click', async () => {
   if (await copyText(roomUrl(state.code))) toast(t('linkCopied'))
 })
-$('#room-leave').addEventListener('click', () => {
+$('#room-leave').addEventListener('click', async () => {
+  const ok = await confirmBox({
+    title: t('leaveQ', {code: displayCode(state.code, lang)}),
+    body: mainBusy() ? t('leaveBodyBusy') : t('leaveBody'),
+    ok: t('leaveOk'),
+  })
+  if (!ok) return
   $('#dlg-room').close()
   enterLocal()
 })
 
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', async () => {
   const code = codeFromHash()
-  if (code && code !== state.code) enterRoom(code)
+  if (!code || code === state.code) return
+  if (await okToSwitch()) enterRoom(code)
+  else history.replaceState(null, '', location.pathname + location.search + (state.code ? `#r=${state.code}` : ''))
 })
 
 window.addEventListener('online', () => {
@@ -1565,10 +1774,32 @@ window.addEventListener('dragleave', () => {
 window.addEventListener('dragover', e => {
   if (e.dataTransfer?.types.includes('Files')) e.preventDefault()
 })
+/**
+ * Files from a drop, without folders: a dropped folder shows up as a File that can't be
+ * read, which would fail mid-transfer. Tell the user instead.
+ */
+function filesFromDrop(dt) {
+  if (!dt) return []
+  const items = [...(dt.items || [])].filter(it => it.kind === 'file')
+  if (!items.length || !items[0].webkitGetAsEntry) return [...(dt.files || [])]
+  const files = []
+  let folders = 0
+  for (const it of items) {
+    const entry = it.webkitGetAsEntry()
+    if (entry?.isDirectory) folders++
+    else {
+      const f = it.getAsFile()
+      if (f) files.push(f)
+    }
+  }
+  if (folders) toast(t('noFolders'), 4500)
+  return files
+}
+
 window.addEventListener('drop', e => {
   e.preventDefault()
   hideDropOverlay()
-  const files = [...(e.dataTransfer?.files || [])]
+  const files = filesFromDrop(e.dataTransfer)
   if (!files.length) return
   const online = [...state.peers.entries()].filter(([, p]) => !p.offline)
   const target = radar.selected || (online.length === 1 ? online[0][0] : null)
@@ -1671,6 +1902,8 @@ function applyLanguage() {
   applyStatic()
   $('#radar-nodes').setAttribute('aria-label', t('radarLabel'))
   renderNotifyButton()
+  renderInboxButton()
+  inbox.render()
   if ($('#dlg-room').open) renderRoomDialog()
   renderMe()
   updateMode()
@@ -1690,6 +1923,7 @@ $('#btn-lang').addEventListener('click', () => {
 
 if (document.documentElement.dataset.theme === 'light') sky.setTheme('dawn')
 applyLanguage()
+document.documentElement.classList.remove('booting')
 takeSharedItems()
 for (const record of loadPairs()) ensurePairSession(record)
 

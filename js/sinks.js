@@ -86,12 +86,19 @@ async function uniqueName(dir, name) {
 /** Must be called during a user gesture. Throws AbortError if the user cancels the picker. */
 export async function diskSink(files) {
   let getHandle
+  // How to delete a file we created but didn't finish (so a failed or cancelled transfer
+  // leaves no empty or half-written file behind).
+  let discard
   if (files.length === 1) {
+    // The save picker has already created the (empty) file at this point.
     const handle = await window.showSaveFilePicker({suggestedName: safeFileName(files[0].name)})
     getHandle = async () => handle
+    discard = async () => handle.remove?.()
   } else {
     const dir = await window.showDirectoryPicker({id: 'nearby', mode: 'readwrite'})
-    getHandle = async i => dir.getFileHandle(await uniqueName(dir, safeFileName(files[i].name)), {create: true})
+    const names = []
+    getHandle = async i => dir.getFileHandle((names[i] = await uniqueName(dir, safeFileName(files[i].name))), {create: true})
+    discard = async i => names[i] && dir.removeEntry(names[i])
   }
 
   const writers = []
@@ -109,8 +116,16 @@ export async function diskSink(files) {
     },
     finish: async () => {},
     abort() {
-      writers.forEach((w, i) => {
-        if (!closed.has(i)) Promise.resolve(w).then(x => x.abort()).catch(() => {})
+      // Files that arrived complete are kept; unfinished ones are thrown away and removed.
+      files.forEach((_, i) => {
+        if (closed.has(i)) return
+        const w = writers[i]
+        if (!w && files.length > 1) return // never created
+        Promise.resolve(w)
+          .then(x => x?.abort())
+          .catch(() => {})
+          .then(() => discard(i))
+          .catch(() => {})
       })
     },
   }

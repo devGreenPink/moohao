@@ -3,7 +3,7 @@
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.7.1'
+const VERSION = 'nearby-v2.8.0'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 
@@ -22,6 +22,7 @@ const SHELL = [
   './js/identity.js',
   './js/known.js',
   './js/ui/transfers.js',
+  './js/ui/inbox.js',
   './js/ui/avatars.js',
   './js/ui/effects.js',
   './js/ui/scanner.js',
@@ -43,7 +44,8 @@ const scopeUrl = path => new URL(path, self.registration.scope).href
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
-      .then(cache => cache.addAll(SHELL.map(scopeUrl)))
+      // 'reload' skips the browser's HTTP cache, so a new version never stores old files.
+      .then(cache => cache.addAll(SHELL.map(u => new Request(scopeUrl(u), {cache: 'reload'}))))
       .then(() => self.skipWaiting()),
   )
 })
@@ -189,9 +191,12 @@ self.addEventListener('fetch', event => {
   if (path.startsWith('__share/')) return
 
   // Network first so updates show up right away; cached copy when offline.
+  // 'no-cache' asks the server whether each file changed (a cheap 304 if not) instead of
+  // trusting the HTTP cache, so right after a deploy the page never mixes old and new files.
+  // (A navigation request can't be re-issued with options, so the page itself goes as is.)
   event.respondWith((async () => {
     try {
-      const res = await fetch(req)
+      const res = await (req.mode === 'navigate' ? fetch(req) : fetch(req, {cache: 'no-cache'}))
       if (res.ok && res.type === 'basic') {
         const copy = res.clone()
         caches.open(SHELL_CACHE).then(c => c.put(req, copy)).catch(() => {})

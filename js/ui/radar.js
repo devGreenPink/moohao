@@ -41,7 +41,7 @@ const SWEEP_MS = 7000
  *
  * options:
  *  onActivate(id)               – node clicked / Enter / Space
- *  onDropFiles(id, files)       – files dropped onto a node
+ *  onDropFiles(id, dataTransfer) – files dropped onto a node
  *  describe(info, status, tier) – accessible label for a node
  */
 export function createRadar(root, {onActivate, onDropFiles, describe}) {
@@ -60,6 +60,9 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     node.beam.style.setProperty('--end', `${end}px`)
   }
 
+  /** Room each device gets along its ring before labels start to bump into each other. */
+  const MIN_GAP_PX = 118
+
   function layout() {
     const groups = {paired: [], known: [], new: []}
     for (const [id, n] of nodes) groups[n.tier].push(id)
@@ -67,20 +70,40 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     for (const tier of TIER_ORDER) {
       const ids = groups[tier].sort()
       const count = ids.length
+      // Crowded ring (small screen or many devices): alternate in and out so neighbours'
+      // labels sit on different heights instead of overlapping.
+      const gap = (2 * Math.PI * TIER_RADIUS[tier] * radiusPx) / Math.max(1, count)
+      const stagger = count > 2 && gap < MIN_GAP_PX ? 0.07 : 0
       ids.forEach((id, i) => {
         const node = nodes.get(id)
         node.angle = (offset + (i * 360) / count) * (Math.PI / 180)
-        // Crowded ring: alternate slightly in and out so labels don't collide.
-        node.r = TIER_RADIUS[tier] + (count > 6 ? (i % 2 ? 0.05 : -0.05) : 0)
+        node.r = Math.min(0.86, TIER_RADIUS[tier] + (i % 2 ? stagger : -stagger))
         node.el.style.setProperty('--x', `${50 + Math.cos(node.angle) * node.r * 50}%`)
         node.el.style.setProperty('--y', `${50 + Math.sin(node.angle) * node.r * 50}%`)
         node.el.style.setProperty('--delay', `${(i % 6) * -0.6}s`)
         placeBeam(node)
         syncBlip(node)
+        fitLabel(node)
       })
       // Stagger rings so devices on different rings don't line up on one ray.
       offset += 360 / Math.max(2, count) / 2 + 23
     }
+  }
+
+  /**
+   * Keep a device's name label inside the radar: near the left/right edge the label is
+   * wider than the space left, so slide it inwards (the avatar stays where it is).
+   */
+  function fitLabel(node) {
+    const w = radiusPx * 2
+    if (!w) return
+    const x = radiusPx + Math.cos(node.angle) * node.r * radiusPx
+    const half = node.el.querySelector('.node-name').offsetWidth / 2
+    const pad = -6 // may reach a little past the disc, into the page margin
+    let shift = 0
+    if (x - half < pad) shift = pad - (x - half)
+    else if (x + half > w - pad) shift = w - pad - (x + half)
+    node.el.style.setProperty('--shift', `${Math.round(shift)}px`)
   }
 
   /**
@@ -152,8 +175,10 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
   }
 
   new ResizeObserver(() => {
-    radiusPx = root.clientWidth / 2
-    for (const node of nodes.values()) placeBeam(node)
+    const next = root.clientWidth / 2
+    if (next === radiusPx) return
+    radiusPx = next
+    layout()
   }).observe(root)
 
   function refreshLabel(id) {
@@ -174,11 +199,10 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         </svg>
         <span class="node-blip" aria-hidden="true"></span>
         <span class="node-avatar" aria-hidden="true"></span>
-        <span class="node-device" aria-hidden="true"></span>
         <span class="node-badge" aria-hidden="true"></span>
         <span class="node-tag" aria-hidden="true"></span>
       </span>
-      <span class="node-name"></span>
+      <span class="node-name"><span class="node-device" aria-hidden="true"></span><span class="node-label"></span></span>
       <span class="node-status" aria-hidden="true"></span>`
 
     const beam = document.createElement('div')
@@ -203,8 +227,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
       e.preventDefault()
       e.stopPropagation()
       el.classList.remove('is-drag')
-      const files = [...(e.dataTransfer?.files || [])]
-      if (files.length) onDropFiles(id, files)
+      if (e.dataTransfer?.files.length) onDropFiles(id, e.dataTransfer)
     })
     field.append(el)
     return node
@@ -230,9 +253,12 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
       el.querySelector('.node-tag').innerHTML = TAGS[tier]
       node.look = look
     }
-    el.querySelector('.node-name').textContent = info.displayName
+    const label = el.querySelector('.node-label')
+    const renamed = label.textContent !== info.displayName
+    if (renamed) label.textContent = info.displayName
     refreshLabel(id)
     if (relayout) layout()
+    else if (renamed) fitLabel(node)
   }
 
   function remove(id) {

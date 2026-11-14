@@ -16,6 +16,8 @@
   <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@300;400;500;600&display=swap"></noscript>
   <link rel="stylesheet" href="css/style.css">
   <script>
+    // Grey placeholder bars show until app.js has filled in the text (slow connections).
+    document.documentElement.classList.add('booting')
     // Night is the default look. Earlier versions could have saved "light"; reset that once.
     try {
       if (!localStorage.getItem('nearby.themeV2')) {
@@ -51,6 +53,10 @@
       <button id="btn-room" class="chip" type="button">
         <span class="dot" id="mode-dot" aria-hidden="true"></span>
         <span id="mode-label"></span>
+      </button>
+      <button id="btn-inbox" class="icon-btn inbox" type="button" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13.5 6.5 5h11l2.5 8.5V19H4v-5.5Z"/><path d="M4 13.5h4.5l1.5 2.5h4l1.5-2.5H20"/></svg>
+        <span class="count" id="inbox-count"></span>
       </button>
       <button id="btn-notify" class="icon-btn notify" type="button" hidden></button>
       <button id="btn-lang" class="icon-btn text" type="button" data-i18n="language"></button>
@@ -117,7 +123,10 @@
           </section>
 
           <section class="panel-sec" id="panel-xfers-sec" hidden>
-            <h4 data-i18n="secTransfers"></h4>
+            <h4>
+              <span data-i18n="secTransfers"></span>
+              <button class="link-btn" id="panel-xfers-clear" type="button" data-i18n="clearFinished" hidden></button>
+            </h4>
             <div class="xfer-list" id="panel-xfers"></div>
             <p class="panel-hint keep-open" data-i18n="keepOpen"></p>
           </section>
@@ -209,7 +218,13 @@
   </footer>
 
   <!-- All transfers, wherever you are on the page -->
-  <div class="tray" id="tray" hidden></div>
+  <div class="tray" id="tray" hidden>
+    <div class="tray-head" id="tray-head" hidden>
+      <span data-i18n="transfersTitle"></span>
+      <button class="link-btn" id="tray-clear" type="button" data-i18n="clearFinished"></button>
+    </div>
+    <div class="xfer-list" id="tray-list"></div>
+  </div>
 
   <div id="pending-bar" class="pending-bar" hidden>
     <span id="pending-text"></span>
@@ -305,7 +320,13 @@
   <dialog id="dlg-scan">
     <form method="dialog" class="sheet">
       <h3 data-i18n="scanTitle"></h3>
-      <div class="scan-view">
+      <div class="scan-ask" id="scan-ask" hidden>
+        <span class="scan-ask-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4V8Z"/><circle cx="12" cy="13.5" r="3.5"/></svg></span>
+        <h4 id="scan-ask-title"></h4>
+        <p class="muted small" id="scan-ask-body"></p>
+        <button type="button" class="btn primary wide" id="scan-allow"></button>
+      </div>
+      <div class="scan-view" id="scan-view">
         <video id="scan-video" playsinline muted></video>
         <span class="scan-frame" aria-hidden="true"></span>
       </div>
@@ -336,6 +357,7 @@
     <form method="dialog" class="sheet">
       <h3 id="offer-title"></h3>
       <p class="muted" id="offer-summary"></p>
+      <p class="small offer-note" id="offer-note"></p>
       <div class="verify" id="offer-verify" hidden>
         <span class="verify-label" data-i18n="verifyLabel"></span>
         <span class="verify-code" id="offer-code"></span>
@@ -348,14 +370,57 @@
     </form>
   </dialog>
 
-  <!-- Received files -->
-  <dialog id="dlg-received">
+  <!-- Received files (kept in this page until saved / cleared) -->
+  <dialog id="dlg-received" class="wide">
     <form method="dialog" class="sheet">
       <h3 id="received-title"></h3>
-      <ul class="file-list" id="received-files"></ul>
+      <p class="small inbox-note" id="received-note"></p>
+      <div class="inbox" id="received-groups"></div>
+      <p class="muted" id="received-empty" data-i18n="inboxEmpty" hidden></p>
+      <div class="row between">
+        <button type="button" class="btn ghost danger" id="received-clear" data-i18n="clearAll"></button>
+        <div class="row">
+          <button class="btn ghost" value="close" data-i18n="close"></button>
+          <button type="button" class="btn" id="received-all" data-i18n="saveAll"></button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- File preview -->
+  <dialog id="dlg-preview" class="preview-dlg">
+    <form method="dialog" class="preview">
+      <div class="preview-head">
+        <div class="preview-title">
+          <b id="preview-name"></b>
+          <span class="muted small" id="preview-meta"></span>
+        </div>
+        <button class="icon-btn" value="close" data-i18n-title="close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="preview-stage" id="preview-stage"></div>
+      <div class="preview-foot">
+        <button type="button" class="icon-btn" id="preview-prev" data-i18n-title="prevFile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
+        </button>
+        <span class="muted small" id="preview-pos"></span>
+        <button type="button" class="icon-btn" id="preview-next" data-i18n-title="nextFile">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+        <a class="btn primary small" id="preview-save" data-i18n="save"></a>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Are you sure? -->
+  <dialog id="dlg-confirm" class="narrow">
+    <form method="dialog" class="sheet">
+      <h3 id="confirm-title"></h3>
+      <p class="muted" id="confirm-body"></p>
       <div class="row end">
-        <button class="btn ghost" value="close" data-i18n="close"></button>
-        <button type="button" class="btn primary" id="received-all" data-i18n="saveAll"></button>
+        <button class="btn ghost" value="no" id="confirm-no"></button>
+        <button class="btn danger-solid" value="yes" id="confirm-yes"></button>
       </div>
     </form>
   </dialog>

@@ -9,7 +9,11 @@ import {ICONS} from './mascot.js'
  *
  * view model: {tid, peerId, peer: {displayName, avatar, color}, dir: 'in'|'out',
  *   status: 'waiting'|'active'|'reconnecting'|'done'|'declined'|'failed'|'cancelled',
- *   files: [{name, size, type, thumb}], done, total, speed, eta, canOpen}
+ *   files: [{name, size, type, thumb}], done, total, speed, eta,
+ *   note: string — what happened / what happens next, in plain words
+ *   actions: {retry, open, dismiss} — which buttons to show}
+ *
+ * The corner button cancels a running transfer and removes a finished one from the list.
  */
 
 export function fmtSize(bytes) {
@@ -49,15 +53,15 @@ function title(vm) {
   const s = vm.status
   if (s === 'reconnecting') return t('xReconnecting', {name})
   if (s === 'declined') return t('xDeclined', {name})
-  if (s === 'failed') return t('xFailed', {name})
-  if (s === 'cancelled') return t('xCancelled', {name})
+  if (s === 'failed') return t(vm.dir === 'in' ? 'xFailedIn' : 'xFailed', {name})
+  if (s === 'cancelled') return t(vm.dir === 'in' ? 'xCancelledIn' : 'xCancelled', {name})
   if (vm.dir === 'out') return t(s === 'waiting' ? 'xOutWaiting' : s === 'done' ? 'xOutDone' : 'xOutActive', {name})
   return t(s === 'done' ? 'xInDone' : 'xInActive', {name})
 }
 
 const ACTIVE = new Set(['waiting', 'active', 'reconnecting'])
 
-export function createTransferList(container, {compact = false, onCancel, onOpen, onSelect} = {}) {
+export function createTransferList(container, {compact = false, onCancel, onOpen, onSelect, onRetry, onDismiss} = {}) {
   const cards = new Map() // tid -> {el, parts, lastFile}
 
   function build(vm) {
@@ -76,7 +80,12 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
       </div>
       <div class="xfer-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
       <div class="xfer-meta"><span class="xfer-pct"></span><span class="xfer-rate"></span></div>
-      <button type="button" class="btn small xfer-open" hidden></button>`
+      <p class="xfer-note" hidden></p>
+      <div class="xfer-actions" hidden>
+        <button type="button" class="btn small primary xfer-open" hidden></button>
+        <button type="button" class="btn small primary xfer-retry" hidden></button>
+        <button type="button" class="btn small ghost xfer-dismiss" hidden></button>
+      </div>`
     const parts = {
       dir: el.querySelector('.xfer-dir'),
       title: el.querySelector('.xfer-title'),
@@ -88,41 +97,62 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
       fill: el.querySelector('.xfer-bar span'),
       pct: el.querySelector('.xfer-pct'),
       rate: el.querySelector('.xfer-rate'),
+      note: el.querySelector('.xfer-note'),
+      actions: el.querySelector('.xfer-actions'),
       open: el.querySelector('.xfer-open'),
+      retry: el.querySelector('.xfer-retry'),
+      dismiss: el.querySelector('.xfer-dismiss'),
     }
-    parts.x.addEventListener('click', e => {
+    const card = {el, parts, vm, lastFile: -1, lastStatus: null, lang: null, actionsKey: ''}
+    // Handlers read card.vm, so they always act on the latest state of the transfer.
+    const on = (btn, fn) => btn.addEventListener('click', e => {
       e.stopPropagation()
-      onCancel?.(vm.peerId, vm.tid)
+      fn(card.vm)
     })
-    parts.open.addEventListener('click', e => {
-      e.stopPropagation()
-      onOpen?.(vm.tid)
-    })
-    if (onSelect) el.addEventListener('click', () => onSelect(vm.peerId))
-    const card = {el, parts, lastFile: -1, lastStatus: null, lang: null}
+    on(parts.x, v => (ACTIVE.has(v.status) ? onCancel?.(v.peerId, v.tid) : onDismiss?.(v.tid)))
+    on(parts.open, v => onOpen?.(v.tid))
+    on(parts.retry, v => onRetry?.(v.tid))
+    on(parts.dismiss, v => onDismiss?.(v.tid))
+    if (onSelect) el.addEventListener('click', () => onSelect(card.vm.peerId))
     cards.set(vm.tid, card)
     return card
   }
 
   function update(card, vm) {
     const {el, parts} = card
+    card.vm = vm
     const active = ACTIVE.has(vm.status)
-    if (card.lang !== lang) {
+    const langChanged = card.lang !== lang
+    if (langChanged) {
       // (re)apply translated labels, e.g. after the user switches language mid-transfer
       card.lang = lang
-      parts.x.title = t('cancelTransfer')
-      parts.x.setAttribute('aria-label', t('cancelTransfer'))
       parts.open.textContent = t('viewFiles')
+      parts.retry.textContent = t('retry')
+      parts.dismiss.textContent = t('dismissShort')
       card.lastFile = -1 // refresh "File 2 of 3"
     }
-    if (card.lastStatus !== vm.status) {
+    if (card.lastStatus !== vm.status || langChanged) {
       card.lastStatus = vm.status
       el.dataset.status = vm.status
       el.dataset.dir = vm.dir
       el.dataset.color = String(vm.peer.color)
       parts.dir.innerHTML = vm.status === 'done' ? ICONS.check : vm.dir === 'out' ? ICONS.arrowUp : ICONS.arrowDown
-      parts.x.hidden = !active
-      parts.open.hidden = !vm.canOpen
+      const label = active ? t(vm.dir === 'in' ? 'cancelReceive' : 'cancelTransfer') : t('dismiss')
+      parts.x.title = label
+      parts.x.setAttribute('aria-label', label)
+    }
+    const a = vm.actions || {}
+    const key = `${!!a.open}${!!a.retry}${!!a.dismiss}`
+    if (card.actionsKey !== key) {
+      card.actionsKey = key
+      parts.open.hidden = !a.open
+      parts.retry.hidden = !a.retry
+      parts.dismiss.hidden = !a.dismiss
+      parts.actions.hidden = !a.open && !a.retry && !a.dismiss
+    }
+    if (parts.note.textContent !== (vm.note || '')) {
+      parts.note.textContent = vm.note || ''
+      parts.note.hidden = !vm.note
     }
     parts.title.textContent = title(vm)
 
