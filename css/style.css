@@ -1347,6 +1347,8 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
 .space-avatar .sp-dot-shade { fill: color-mix(in srgb, var(--tint) 62%, var(--sp-outline)); }
 .space-avatar .sp-dot-cream { fill: var(--sp-cream); }
 .space-avatar .sp-ol { fill: none; stroke: var(--sp-line); stroke-linecap: round; stroke-linejoin: round; }
+/* thin inner detail lines (solar-panel cells) */
+.space-avatar .sp-thin { fill: none; stroke: var(--sp-line); stroke-linecap: round; }
 .space-avatar .sp-lc { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .space-avatar .sp-lc-light { stroke: var(--sp-lav); }
 .space-avatar .sp-lc-cream { stroke: var(--sp-cream); }

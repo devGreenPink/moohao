@@ -49,10 +49,14 @@ const SHAPES = {
   star: `
     <path class="sp-body" d="M32 9.5L38.4 24.8L54.5 26.2L42.2 36.9L45.8 52.6L32 44.3L18.2 52.6L21.8 36.9L9.5 26.2L25.6 24.8Z"/>
     ${face(32, 35, 0.85)}`,
+  // a round head racing down-left, three soft speed streaks trailing behind it
   comet: `
-    <path class="sp-light" d="M19 29C33 21 46 11 54.5 6.8C57.5 5.5 59.2 8.4 57.2 10.6C50 19 42 31 35.5 44Z"/>
-    <circle class="sp-body" cx="25" cy="39" r="14"/>
-    ${face(25, 39, 0.9)}`,
+    ${line('M30 32L54 9', 'light', 7.5)}
+    ${line('M21 30L36 10', 'cream', 4)}
+    ${line('M34 40L57 27', 'cream', 4)}
+    ${spark(56, 18, 2.8)}
+    <circle class="sp-body" cx="24" cy="40" r="14.5"/>
+    ${face(24, 40.5, 0.9)}`,
   sun: `
     ${line('M32 5v5M32 54v5M5 32h5M54 32h5M13 13l3.5 3.5M47.5 47.5L51 51M13 51l3.5-3.5M47.5 16.5L51 13', 'cream', 3.4)}
     <circle class="sp-body" cx="32" cy="32" r="16"/>
@@ -72,13 +76,20 @@ const SHAPES = {
     <circle class="sp-dot sp-dot-cream" cx="32" cy="40" r="2.2"/>
     <circle class="sp-dot sp-dot-cream" cx="47" cy="37" r="2.2"/>
     ${spark(54, 14)}`,
+  // solar-panel wings (with cells) on little arms, a dish on top sending out signal waves
   satellite: `
-    <rect class="sp-light" x="3" y="25" width="14" height="15" rx="3.5"/>
-    <rect class="sp-light" x="47" y="25" width="14" height="15" rx="3.5"/>
-    ${line('M32 21V12', 'light', 3)}
-    <circle class="sp-pink" cx="32" cy="9.5" r="3.4"/>
-    <rect class="sp-body" x="20" y="21" width="24" height="23" rx="8"/>
-    ${face(32, 32.5, 0.75)}`,
+    ${line('M14 35H50', 'light', 2.6)}
+    <rect class="sp-light" x="2.5" y="27" width="15" height="16" rx="2.5"/>
+    <path class="sp-thin" d="M10 27.5v15M3 35h14" stroke-width="1.3"/>
+    <rect class="sp-light" x="46.5" y="27" width="15" height="16" rx="2.5"/>
+    <path class="sp-thin" d="M54 27.5v15M47 35h14" stroke-width="1.3"/>
+    ${line('M32 24V17', 'light', 2.6)}
+    <path class="sp-cream" d="M22.5 11Q32 23 41.5 11Z"/>
+    <circle class="sp-pink" cx="32" cy="10.5" r="2.4"/>
+    ${line('M45 5.5q3 3 0 6.5', 'cream', 2)}
+    ${line('M49.5 3q5 5.5 0 11.5', 'cream', 2)}
+    <rect class="sp-body" x="21" y="23" width="22" height="24" rx="9"/>
+    ${face(32, 35, 0.72)}`,
   astro: `
     <rect class="sp-body" x="21" y="40" width="22" height="18" rx="8.5"/>
     <circle class="sp-body" cx="32" cy="27" r="18"/>
@@ -121,14 +132,19 @@ const SHAPES = {
     <path class="sp-body" d="M39 8A24 24 0 1 0 55.5 44A19 19 0 1 1 39 8Z"/>
     ${face(23.5, 34, 0.85)}
     ${spark(50, 18, 3.6)}`,
+  // a little moon buggy: rounded cab, two big wheels, an antenna and a flag
   rover: `
-    ${line('M43 22V14', 'light', 3)}
-    <rect class="sp-light" x="37" y="5.5" width="12" height="8.5" rx="4"/>
-    <circle class="sp-shade" cx="19" cy="47" r="6"/>
-    <circle class="sp-shade" cx="32" cy="47" r="6"/>
-    <circle class="sp-shade" cx="45" cy="47" r="6"/>
-    <rect class="sp-body" x="10" y="21" width="44" height="23" rx="9"/>
-    ${face(32, 32, 0.85)}`,
+    ${line('M19 24V9', 'light', 2.2)}
+    <path class="sp-pink" d="M19.5 9.5h9.5l-2.6 3.4 2.6 3.4h-9.5Z"/>
+    ${line('M45 24V14', 'light', 2.6)}
+    <circle class="sp-cream" cx="45" cy="11.5" r="3.4"/>
+    <rect class="sp-light" x="8" y="40" width="48" height="6" rx="3"/>
+    <path class="sp-body" d="M10 42L13.5 27Q14.8 22 20 22H44Q49.2 22 50.5 27L54 42Z"/>
+    <circle class="sp-shade" cx="18.5" cy="48" r="8"/>
+    <circle class="sp-cream" cx="18.5" cy="48" r="2.8"/>
+    <circle class="sp-shade" cx="45.5" cy="48" r="8"/>
+    <circle class="sp-cream" cx="45.5" cy="48" r="2.8"/>
+    ${face(32, 32.5, 0.85)}`,
 }
 
 if (AVATARS.some(id => !SHAPES[id])) throw new Error('every avatar id needs a drawing')
