@@ -1,5 +1,6 @@
 /* ==========================================================================
-   Nearby — "night radar" theme (default) with a pastel "dawn" light variant
+   Nearby — "night radar" theme (default) with a light "dusk in space" variant
+   (the sky itself — gradient, stars, planet horizon — is painted by js/ui/sky.js)
    ========================================================================== */
 
 :root {
@@ -23,7 +24,11 @@
   --focus: #8fe6f2;
 
   --sweep: rgba(143, 230, 242, 0.22);
+  --sweep-edge: #8fe6f2;
   --radar-core: rgba(185, 162, 255, 0.24);
+  --radar-fill: rgba(16, 15, 52, 0.45);
+  --radar-rim: rgba(185, 162, 255, 0.45);
+  --radar-glow: rgba(130, 110, 255, 0.22);
   --btn-grad: linear-gradient(90deg, #c2a8ff, #8fe6f2);
   --btn-ink: #1d1a45;
   --btn-glow: 0 8px 28px rgba(160, 140, 255, 0.35);
@@ -43,40 +48,44 @@
 }
 
 :root[data-theme="light"] {
-  /* dawn */
-  --bg: #f4f0ff;
-  --bg-glow: #e2d9ff;
-  --surface: rgba(255, 255, 255, 0.92);
-  --surface-solid: #ffffff;
-  --surface-2: rgba(91, 70, 190, 0.05);
-  --text: #2a2357;
-  --muted: #6b6497;
-  --line: rgba(91, 70, 190, 0.16);
-  --ring: rgba(120, 96, 220, 0.16);
-  --ring-strong: rgba(120, 96, 220, 0.3);
+  /* dusk in space: periwinkle sky → lilac → a peach glow behind the planet */
+  --bg: #d8cff8;
+  --bg-glow: #f4dcf0;
+  --surface: rgba(255, 255, 255, 0.66);
+  --surface-solid: #fbf8ff;
+  --surface-2: rgba(80, 64, 190, 0.06);
+  --text: #251e55;
+  --muted: #4b4483;
+  --line: rgba(74, 58, 180, 0.2);
+  --ring: rgba(74, 58, 180, 0.22);
+  --ring-strong: rgba(74, 58, 180, 0.34);
 
-  --lav: #8a68f0;
-  --peach: #e9658c;
-  --sky: #1f9fbd;
-  --mint: #149a6c;
-  --warn: #d3365e;
-  --focus: #1f9fbd;
+  --lav: #6a4fdc;
+  --peach: #d9466f;
+  --sky: #4a3fcf;
+  --mint: #0f8a60;
+  --warn: #c92a56;
+  --focus: #4a3fcf;
 
-  --sweep: rgba(31, 159, 189, 0.16);
-  --radar-core: rgba(138, 104, 240, 0.16);
-  --btn-grad: linear-gradient(90deg, #9b7cf6, #45bdd8);
+  --sweep: rgba(240, 110, 150, 0.22);
+  --sweep-edge: #ef5f8a;
+  --radar-core: rgba(255, 255, 255, 0.26);
+  --radar-fill: rgba(96, 76, 214, 0.08);
+  --radar-rim: rgba(74, 58, 180, 0.5);
+  --radar-glow: rgba(240, 120, 170, 0.18);
+  --btn-grad: linear-gradient(90deg, #7f63ee, #ec6f98);
   --btn-ink: #ffffff;
-  --btn-glow: 0 8px 24px rgba(120, 96, 220, 0.28);
-  --label-bg: rgba(255, 255, 255, 0.94);
+  --btn-glow: 0 8px 24px rgba(160, 80, 170, 0.3);
+  --label-bg: rgba(255, 255, 255, 0.86);
 
   --m-base: #ffffff;
   --m-screen: #f1ecff;
   --m-face: #3a3170;
 
-  --star: #8a68f0;
-  --shadow: 0 18px 50px rgba(70, 50, 150, 0.14);
-  --scroll-thumb: rgba(120, 96, 220, 0.32);
-  --scroll-thumb-hover: rgba(120, 96, 220, 0.55);
+  --star: #ffffff;
+  --shadow: 0 18px 50px rgba(90, 60, 170, 0.2);
+  --scroll-thumb: rgba(74, 58, 180, 0.35);
+  --scroll-thumb-hover: rgba(74, 58, 180, 0.6);
   color-scheme: light;
 }
 
@@ -143,7 +152,7 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: 0 0 6px var(--star);
   animation: twinkle var(--dur) ease-in-out infinite;
 }
-:root[data-theme="light"] .star { box-shadow: none; }
+:root[data-theme="light"] .star { box-shadow: 0 0 6px rgba(90, 76, 214, 0.7); }
 @keyframes twinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.9; } }
 .shooting-star {
   position: absolute; width: 150px; height: 2px; border-radius: 2px;
@@ -229,12 +238,16 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   aspect-ratio: 1;
   margin: 26px auto 34px;
 }
+/* a glassy disc: a little darker (night) or lighter (dusk) than the sky, a bright rim and a
+   soft halo, so the radar reads as an instrument floating in space */
 .radar-disc {
   position: absolute; inset: 0;
   border-radius: 50%; overflow: hidden;
-  background: radial-gradient(circle closest-side, var(--radar-core), transparent 85%);
-  border: 1px solid var(--ring-strong);
-  box-shadow: 0 0 80px rgba(130, 110, 255, 0.14), inset 0 0 60px rgba(130, 110, 255, 0.1);
+  background:
+    radial-gradient(circle closest-side, var(--radar-core), transparent 70%),
+    var(--radar-fill);
+  border: 1.5px solid var(--radar-rim);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--radar-rim) 18%, transparent), 0 0 90px var(--radar-glow), inset 0 0 60px var(--radar-glow);
 }
 .radar-rings {
   position: absolute; inset: 0; border-radius: 50%;
@@ -256,8 +269,8 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
 .radar-sweep::after {
   content: ""; position: absolute; left: 50%; top: 0;
   width: 2px; height: 50%; margin-left: -1px;
-  background: linear-gradient(to top, transparent, var(--sky));
-  box-shadow: 0 0 12px var(--sky);
+  background: linear-gradient(to top, transparent, var(--sweep-edge));
+  box-shadow: 0 0 12px var(--sweep-edge);
   opacity: 0.85;
 }
 @keyframes sweep { to { transform: rotate(360deg); } }
@@ -616,6 +629,13 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   max-height: 50dvh; overflow: auto;
 }
 .tray .xfer { background: var(--surface-solid); border-color: var(--ring-strong); box-shadow: var(--shadow); }
+/* glassy cards: a faint top edge catches the light (no backdrop blur: that's costly on phones) */
+:is(.panel, .scan, .me-card) { box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+:root[data-theme="light"] :is(.panel, .scan, .me-card, .chip) {
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+}
+:root[data-theme="light"] .topbar { border-bottom-color: rgba(255, 255, 255, 0.5); }
+:root[data-theme="light"] .hero h2 { color: #1f1850; }
 .tray-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 6px 8px 6px 14px; border-radius: 14px;

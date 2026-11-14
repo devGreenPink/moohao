@@ -1353,6 +1353,8 @@ function applyTheme(theme) {
   else delete document.documentElement.dataset.theme
   store('nearby.theme', theme === 'light' ? 'light' : 'night')
   sky.setTheme(theme === 'light' ? 'dawn' : 'night')
+  // the phone's browser bar takes the top colour of the sky
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#b9b2f2' : '#090a22')
 }
 
 function openProfile() {

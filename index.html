@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Nearby</title>
   <meta name="description" content="Share files and text between devices on the same network. Peer-to-peer, nothing is uploaded.">
-  <meta name="theme-color" content="#11122c">
+  <meta name="theme-color" content="#090a22">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
@@ -24,7 +24,10 @@
         localStorage.removeItem('nearby.theme')
         localStorage.setItem('nearby.themeV2', '1')
       }
-      if (localStorage.getItem('nearby.theme') === 'light') document.documentElement.dataset.theme = 'light'
+      if (localStorage.getItem('nearby.theme') === 'light') {
+        document.documentElement.dataset.theme = 'light'
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', '#b9b2f2')
+      }
     } catch {}
   </script>
 </head>
