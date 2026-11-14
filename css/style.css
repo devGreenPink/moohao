@@ -964,3 +964,72 @@ textarea { resize: vertical; width: 100%; }
 @media (max-width: 640px) {
   .node-avatar { width: 38px; height: 38px; }
 }
+
+/* ---------- effects (all one-shot or compositor-only; see js/ui/effects.js) ---------- */
+
+/* radar "contact" blip — driven from JS in step with the sweep */
+.node-blip {
+  position: absolute; inset: -4px; border-radius: 50%;
+  border: 2px solid var(--tint);
+  box-shadow: 0 0 14px var(--tint);
+  opacity: 0; pointer-events: none;
+}
+
+/* comet launched when a transfer starts */
+.comet { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: rotate(var(--a)); pointer-events: none; }
+.comet i {
+  position: absolute; left: 0; top: -4px;
+  width: 36px; height: 8px; border-radius: 8px;
+  background: linear-gradient(90deg, transparent, var(--tint) 65%, #fff);
+  animation: comet-out 0.75s cubic-bezier(0.5, 0, 0.6, 1) forwards;
+}
+.comet.in i { background: linear-gradient(270deg, transparent, var(--tint) 65%, #fff); animation-name: comet-in; }
+@keyframes comet-out {
+  0% { transform: translateX(var(--start)); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateX(calc(var(--end) - 30px)); opacity: 1; }
+}
+@keyframes comet-in {
+  0% { transform: translateX(calc(var(--end) - 30px)); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateX(var(--start)); opacity: 1; }
+}
+
+/* star burst when a transfer completes */
+.burst { position: absolute; width: 0; height: 0; z-index: 4; pointer-events: none; }
+.burst i {
+  position: absolute; left: calc(var(--s) / -2); top: calc(var(--s) / -2);
+  width: var(--s); height: var(--s); border-radius: 50%;
+  background: var(--tint); box-shadow: 0 0 6px var(--tint);
+  animation: burst 0.85s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+.burst i.star {
+  border-radius: 0; box-shadow: none; background: #fff6d6;
+  clip-path: polygon(50% 0, 61% 38%, 100% 50%, 61% 62%, 50% 100%, 39% 62%, 0 50%, 39% 38%);
+}
+@keyframes burst {
+  0% { transform: translate(0, 0) scale(0.4); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; }
+}
+
+/* happy hop after a transfer */
+.node-avatar.is-happy, .self-avatar.is-happy { animation: happy 0.65s cubic-bezier(0.3, 1.6, 0.5, 1); }
+@keyframes happy {
+  30% { transform: translateY(-10px) scale(1.12) rotate(-6deg); }
+  60% { transform: translateY(0) scale(0.94); }
+}
+
+/* blink (a class toggled briefly on one mascot at a time) and a bigger smile on hover */
+.space-avatar .sp-eye, .space-avatar .sp-glint { transform-box: fill-box; transform-origin: center; transition: transform 0.08s ease; }
+.space-avatar.blink .sp-eye, .space-avatar.blink .sp-glint { transform: scaleY(0.12); }
+.space-avatar .sp-mouth { transform-box: fill-box; transform-origin: center top; transition: transform 0.2s ease; }
+.space-avatar .sp-cheek { transition: opacity 0.2s ease; }
+.node:hover .sp-mouth, .radar-self:hover .sp-mouth, .me-card:hover .sp-mouth { transform: scale(1.35, 1.7); }
+.node:hover .sp-cheek, .radar-self:hover .sp-cheek, .me-card:hover .sp-cheek { opacity: 0.85; }
+
+/* power saving: stop purely decorative motion, keep everything that shows state */
+:root.lite .star { animation: none; opacity: 0.45; }
+:root.lite .node-avatar, :root.lite .radar-self::before, :root.lite .node.is-selected .node-orb::after { animation: none; }
+:root.lite .node-blip, :root.lite .comet, :root.lite .burst, :root.lite .shooting-star { display: none; }
+:root.lite .space-avatar * { transition: none; }

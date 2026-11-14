@@ -15,6 +15,7 @@ import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
 import {createTransferList, fmtSize} from './ui/transfers.js'
 import {createSky} from './ui/sky.js'
+import {effectsOn, powerSetting, setPowerSetting, isLite, liteReason, onPowerChange} from './ui/effects.js'
 
 const $ = sel => document.querySelector(sel)
 
@@ -509,6 +510,10 @@ function transferProgress(tid, done) {
     x.start = now
     x.base = done
     x.status = 'active'
+    if (!x.launched) {
+      x.launched = true
+      radar.launch(x.peerId, x.dir) // a comet flies off (or in) as the bytes start moving
+    }
   }
   x.done = done
   const secs = (now - x.start) / 1000
@@ -527,6 +532,9 @@ function transferState(tid, status) {
     if (status === 'done') {
       x.done = x.total
       noteTransfer(state.peers.get(x.peerId)?.info.deviceId, x.dir)
+      // stars burst around whoever just got the files
+      if (x.dir === 'out') radar.celebrate(x.peerId)
+      else radar.celebrate(null, me.color)
     }
     updateWakeLock()
     // A device kept on the radar only for this transfer can go now.
@@ -1036,6 +1044,19 @@ $('#compose-text').addEventListener('keydown', e => {
   }
 })
 
+// ---------- mascot blinks ----------
+
+// Every so often one visible mascot blinks: a short class toggle on one element, instead of
+// a blink animation running on every avatar all the time.
+setInterval(() => {
+  if (document.hidden || !effectsOn()) return
+  const avatars = document.querySelectorAll('.radar .space-avatar, #panel .space-avatar')
+  if (!avatars.length) return
+  const svg = avatars[Math.floor(Math.random() * avatars.length)]
+  svg.classList.add('blink')
+  setTimeout(() => svg.classList.remove('blink'), 180)
+}, 1500)
+
 // ---------- first-run hint ----------
 
 /** A short "this is you" bubble under your own avatar instead of a setup dialog. */
@@ -1105,6 +1126,21 @@ function openProfile() {
       preview()
     }
   }
+  // Power saving applies (and is saved) right away; it isn't part of the profile you share.
+  const renderPower = () => {
+    for (const b of $('#profile-power').children) mark(b, b.dataset.power === powerSetting())
+    const why = liteReason()
+    $('#profile-power-note').textContent = isLite()
+      ? t('powerNowLite') + (why ? ' (' + t(why === 'battery' ? 'powerBattery' : 'powerDevice') + ')' : '')
+      : t('powerNowFull')
+  }
+  for (const b of $('#profile-power').children) {
+    b.onclick = () => {
+      setPowerSetting(b.dataset.power)
+      renderPower()
+    }
+  }
+  renderPower()
   preview()
 
   const themeBefore = draft.theme
@@ -1128,7 +1164,7 @@ $('#self').addEventListener('click', () => openProfile())
 $('#me-card').addEventListener('click', () => openProfile())
 
 // Arrow keys pick the previous/next option in the profile's radio groups.
-for (const group of ['#profile-avatars', '#profile-colors', '#profile-theme']) {
+for (const group of ['#profile-avatars', '#profile-colors', '#profile-theme', '#profile-power']) {
   $(group).addEventListener('keydown', e => {
     const step = {ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1}[e.key]
     if (!step) return

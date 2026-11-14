@@ -42,9 +42,10 @@ const PALETTES = {
   },
 }
 
+import {effectsOn} from './effects.js'
+
 export function createSky({canvas, twinkleLayer, shootLayer}) {
   let theme = 'night'
-  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
 
   function paint() {
     const p = PALETTES[theme]
@@ -132,7 +133,7 @@ export function createSky({canvas, twinkleLayer, shootLayer}) {
   function scheduleShootingStar() {
     clearTimeout(shootTimer)
     shootTimer = setTimeout(() => {
-      if (!document.hidden && !reduceMotion.matches && theme === 'night') {
+      if (!document.hidden && effectsOn() && theme === 'night') {
         const s = document.createElement('span')
         s.className = 'shooting-star'
         s.style.left = `${10 + Math.random() * 70}%`

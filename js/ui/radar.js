@@ -1,5 +1,6 @@
 import {mascot, ICONS} from './mascot.js'
 import {avatarSvg} from './avatars.js'
+import {effectsOn, onPowerChange} from './effects.js'
 
 const RING = 2 * Math.PI * 46
 
@@ -31,6 +32,9 @@ const TIER_ORDER = ['paired', 'known', 'new']
 
 const ORB_PX = 62
 const SELF_FRACTION = 0.2 // self orb radius as a fraction of the radar radius
+
+/** One turn of the radar sweep — must match the `sweep` animation in style.css. */
+const SWEEP_MS = 7000
 
 /**
  * Radar of nearby devices. Each device is a real <button> placed on the rings.
@@ -72,9 +76,78 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         node.el.style.setProperty('--y', `${50 + Math.sin(node.angle) * node.r * 50}%`)
         node.el.style.setProperty('--delay', `${(i % 6) * -0.6}s`)
         placeBeam(node)
+        syncBlip(node)
       })
       // Stagger rings so devices on different rings don't line up on one ray.
       offset += 360 / Math.max(2, count) / 2 + 23
+    }
+  }
+
+  /**
+   * "Contact" blip: each node flashes as the sweep line passes over it. The flash is a Web
+   * Animation whose start time is pinned to the sweep's own CSS animation, offset by the
+   * node's angle, so it stays in step (opacity/transform only, so it runs on the compositor).
+   */
+  function syncBlip(node) {
+    if (!effectsOn()) {
+      node.blipAnim?.cancel()
+      node.blipAnim = null
+      return
+    }
+    const sweep = root.querySelector('.radar-sweep')?.getAnimations()[0]
+    if (!sweep || sweep.startTime == null) return
+    node.blipAnim ??= node.el.querySelector('.node-blip').animate([
+      {opacity: 0.9, transform: 'scale(0.9)'},
+      {opacity: 0, transform: 'scale(1.7)', offset: 0.12},
+      {opacity: 0, transform: 'scale(1.7)'},
+    ], {duration: SWEEP_MS, iterations: Infinity, easing: 'linear'})
+    // The sweep's bright edge starts at 12 o'clock (-90° here) and turns clockwise.
+    const deg = (((node.angle * 180) / Math.PI + 90) % 360 + 360) % 360
+    node.blipAnim.startTime = sweep.startTime + (deg / 360) * SWEEP_MS
+  }
+
+  onPowerChange(() => {
+    for (const node of nodes.values()) syncBlip(node)
+  })
+
+  /** A little comet flying between you and a device (dir 'out' = from you). */
+  function launch(id, dir = 'out') {
+    const node = nodes.get(id)
+    if (!node || !effectsOn()) return
+    const comet = document.createElement('div')
+    comet.className = `comet${dir === 'in' ? ' in' : ''}`
+    comet.dataset.color = String(node.info.color)
+    for (const v of ['--a', '--start', '--end']) comet.style.setProperty(v, node.beam.style.getPropertyValue(v))
+    comet.innerHTML = '<i></i>'
+    comet.firstChild.addEventListener('animationend', () => comet.remove(), {once: true})
+    beamLayer.append(comet)
+  }
+
+  /** Burst of stars around a device (or around you when id is null), plus a happy hop. */
+  function celebrate(id, selfColor) {
+    if (!effectsOn()) return
+    const node = id ? nodes.get(id) : null
+    if (id && !node) return
+    const burst = document.createElement('div')
+    burst.className = 'burst'
+    burst.style.left = node ? node.el.style.getPropertyValue('--x') : '50%'
+    burst.style.top = node ? node.el.style.getPropertyValue('--y') : '50%'
+    burst.dataset.color = String(node ? node.info.color : selfColor)
+    const count = 12
+    burst.innerHTML = Array.from({length: count}, (_, i) => {
+      const a = ((i / count) * 360 + Math.random() * 20) * (Math.PI / 180)
+      const dist = (node ? 46 : 70) + Math.random() * 18
+      const star = i % 3 === 0
+      return `<i class="${star ? 'star' : ''}" style="--dx:${(Math.cos(a) * dist).toFixed(1)}px;--dy:${(Math.sin(a) * dist).toFixed(1)}px;--s:${star ? 9 : 4 + Math.round(Math.random() * 3)}px"></i>`
+    }).join('')
+    field.append(burst)
+    setTimeout(() => burst.remove(), 1000)
+    const avatar = node ? node.el.querySelector('.node-avatar') : root.querySelector('.self-avatar')
+    if (avatar) {
+      avatar.classList.remove('is-happy')
+      void avatar.offsetWidth // restart the animation if it's already playing
+      avatar.classList.add('is-happy')
+      avatar.addEventListener('animationend', () => avatar.classList.remove('is-happy'), {once: true})
     }
   }
 
@@ -99,6 +172,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
           <circle class="track" cx="50" cy="50" r="46"/>
           <circle class="bar" cx="50" cy="50" r="46" stroke-dasharray="${RING}" stroke-dashoffset="${RING}"/>
         </svg>
+        <span class="node-blip" aria-hidden="true"></span>
         <span class="node-avatar" aria-hidden="true"></span>
         <span class="node-device" aria-hidden="true"></span>
         <span class="node-badge" aria-hidden="true"></span>
@@ -232,6 +306,8 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     select,
     setStatus,
     setBeam,
+    launch,
+    celebrate,
     get size() { return nodes.size },
     get selected() { return selected },
     ids: () => [...nodes.keys()],
