@@ -47,7 +47,7 @@ const ACK_EVERY = 1024 ** 2
 const IDLE_TIMEOUT_MS = 60 * 1000
 
 /** If the connection drops mid-transfer, both sides wait this long for it to come back. */
-const RESUME_WAIT_MS = 90 * 1000
+export const RESUME_WAIT_MS = 90 * 1000
 
 /** After the last chunk is sent, how long to wait for the receiver's "all saved". */
 const ACK_TIMEOUT_MS = 3 * 60 * 1000

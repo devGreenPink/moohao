@@ -6,9 +6,9 @@
 // page. Each preview gets its own Blob whose type we choose from the kind we detected
 // (image/video/audio/PDF), text is shown with textContent, and anything else isn't shown.
 
-import {t} from '../i18n.js'
+import {t, lang} from '../i18n.js'
 import {ICONS} from './mascot.js'
-import {fmtSize} from './transfers.js'
+import {fmtSize, fileExt} from './transfers.js'
 
 const $ = sel => document.querySelector(sel)
 
@@ -24,14 +24,10 @@ const EXT = {
   text: ['txt', 'md', 'csv', 'json', 'log', 'srt', 'vtt', 'xml', 'yaml', 'yml', 'ini'],
 }
 
-function extOf(name) {
-  const m = /\.([a-z0-9]{1,5})$/i.exec(name || '')
-  return m ? m[1].toLowerCase() : ''
-}
 
 /** 'image' | 'video' | 'audio' | 'pdf' | 'text' | null */
-export function previewKind({name, type = '', size = 0}) {
-  const e = extOf(name)
+export function previewKind({name, type = ''}) {
+  const e = fileExt(name)
   const ty = String(type).toLowerCase()
   if (ty.startsWith('image/') || EXT.image.includes(e)) return 'image'
   if (ty.startsWith('video/') || EXT.video.includes(e)) return 'video'
@@ -44,7 +40,7 @@ export function previewKind({name, type = '', size = 0}) {
 /** The MIME type used for the preview copy: always one of the kind we decided on. */
 function previewType(kind, {name, type = ''}) {
   const ty = String(type).toLowerCase()
-  const e = extOf(name)
+  const e = fileExt(name)
   if (kind === 'pdf') return 'application/pdf'
   if (kind === 'image') {
     if (/^image\/[\w.+-]+$/.test(ty)) return ty
@@ -67,12 +63,20 @@ function timeOf(ts) {
  *  toast(text) — a short message
  */
 export function createInbox({confirmBox, showDialog, onChange, toast}) {
-  /** {id, tid, from, color, name, type, size, blob, url, saved, at} in arrival order */
+  /** {id, tid, from, color, name, type, size, blob, url, thumbUrl, saved, at} in arrival order */
   let items = []
   let nextId = 1
   let highlightTid = null
+  /** When the list was last on screen: a file that arrived before this has been seen. */
+  let lastShownAt = 0
   const dlg = $('#dlg-received')
   const list = $('#received-groups')
+  /**
+   * Built rows, reused across renders (id → {li, sub}): a save or delete only touches its
+   * own row, and image thumbnails are decoded once instead of on every change.
+   */
+  const rows = new Map()
+  let rowsLang = null
 
   const urlOf = it => (it.url ??= URL.createObjectURL(it.blob))
   const bytes = () => items.reduce((s, it) => s + it.size, 0)
@@ -93,28 +97,50 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
     const box = document.createElement('span')
     box.className = 'thumb'
     box.dataset.kind = kind || 'file'
-    if (kind === 'image') {
+    if (kind === 'image' && !it.thumbFailed) {
       const img = document.createElement('img')
       img.alt = ''
       img.loading = 'lazy'
       img.decoding = 'async'
-      img.src = URL.createObjectURL(new Blob([it.blob], {type: previewType('image', it)}))
-      const done = () => {
-        URL.revokeObjectURL(img.src)
-        box.classList.add('ready')
-      }
-      img.addEventListener('load', done, {once: true})
+      // One URL per file, kept with the file and revoked when it's deleted, so a thumbnail
+      // that never loads (off-screen, lazy) can't leave the image pinned in memory.
+      img.src = it.thumbUrl ??= URL.createObjectURL(new Blob([it.blob], {type: previewType('image', it)}))
+      img.addEventListener('load', () => box.classList.add('ready'), {once: true})
       img.addEventListener('error', () => {
-        done()
+        it.thumbFailed = true
+        box.classList.add('ready')
         img.remove()
-        box.textContent = extOf(it.name) || 'img'
+        box.textContent = fileExt(it.name) || 'img'
       }, {once: true})
       box.classList.add('skeleton')
       box.append(img)
     } else if (kind === 'video') box.innerHTML = ICONS.play
     else if (kind === 'audio') box.innerHTML = ICONS.music
-    else box.textContent = kind === 'pdf' ? 'pdf' : extOf(it.name) || 'file'
+    else box.textContent = kind === 'pdf' ? 'pdf' : fileExt(it.name) || 'file'
     return box
+  }
+
+  /** "12 MB" or "12 MB · Saved" under the file name. */
+  function syncSaved(rec, it) {
+    if (rec.saved === it.saved) return
+    rec.saved = it.saved
+    rec.sub.textContent = fmtSize(it.size)
+    if (it.saved) {
+      const ok = document.createElement('em')
+      ok.className = 'saved'
+      ok.textContent = t('saved')
+      rec.sub.append(' · ', ok)
+    }
+  }
+
+  function rowFor(it) {
+    let rec = rows.get(it.id)
+    if (!rec) {
+      rec = row(it)
+      rows.set(it.id, rec)
+    }
+    syncSaved(rec, it)
+    return rec.li
   }
 
   function row(it) {
@@ -139,12 +165,6 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
     name.title = it.name
     const sub = document.createElement('span')
     sub.textContent = fmtSize(it.size)
-    if (it.saved) {
-      const ok = document.createElement('em')
-      ok.className = 'saved'
-      ok.textContent = t('saved')
-      sub.append(' · ', ok)
-    }
     meta.append(name, sub)
 
     const acts = document.createElement('div')
@@ -172,10 +192,16 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
     del.addEventListener('click', () => removeOne(it.id))
     acts.append(save, del)
     li.append(meta, acts)
-    return li
+    return {li, sub, saved: false}
   }
 
   function render() {
+    lastShownAt = Date.now()
+    if (rowsLang !== lang) {
+      // labels inside the rows are translated: rebuild them once after a language switch
+      rowsLang = lang
+      rows.clear()
+    }
     const groups = ordered()
     list.replaceChildren(...groups.map(group => {
       const first = group[0]
@@ -194,7 +220,7 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
       }
       const ul = document.createElement('ul')
       ul.className = 'file-list'
-      ul.append(...group.map(row))
+      ul.append(...group.map(rowFor))
       sec.append(h, ul)
       return sec
     }))
@@ -215,14 +241,21 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
   function markSaved(it) {
     if (it.saved) return
     it.saved = true
-    // Re-render after the click has started the download.
-    setTimeout(changed, 0)
+    // After the click has started the download: update just this row, then the counts.
+    setTimeout(() => {
+      const rec = rows.get(it.id)
+      if (rec) syncSaved(rec, it)
+      onChange?.()
+    }, 0)
   }
 
   function drop(ids) {
     const gone = new Set(ids)
     for (const it of items) {
-      if (gone.has(it.id) && it.url) URL.revokeObjectURL(it.url)
+      if (!gone.has(it.id)) continue
+      if (it.url) URL.revokeObjectURL(it.url)
+      if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl)
+      rows.delete(it.id)
     }
     items = items.filter(it => !gone.has(it.id))
     changed()
@@ -391,7 +424,10 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
       changed()
     },
     has: tid => items.some(it => it.tid === tid),
+    /** Has the list been on screen since these files arrived? */
+    seen: tid => items.some(it => it.tid === tid && it.at <= lastShownAt),
     get count() { return items.length },
+    get bytes() { return bytes() },
     get unsaved() { return unsaved() },
     /** Open the list; resolves when it's closed. */
     async open({title = t('inbox'), highlight = null} = {}) {

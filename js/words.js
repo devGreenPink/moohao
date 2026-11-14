@@ -50,9 +50,11 @@ const BY_LENGTH = [...LOOKUP.keys()].sort((a, b) => b.length - a.length)
 
 const LEGACY = /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/
 
-// ---------- picture codes: 4 space mascots, tapped instead of typed ----------
-// e.g. "p-saturn-rocket-alien-moon". 16^4 = 65,536 codes: plenty for short-lived rooms,
-// since files still need the receiver's "Accept" and the safety code shows who is who.
+// ---------- picture codes: 5 space mascots, tapped instead of typed ----------
+// e.g. "p-saturn-rocket-alien-moon-star". 16^5 ≈ 1 million rooms: rooms live on public
+// relays, so the code has to be big enough that sweeping every room isn't cheap (with 4
+// pictures it was only 65,536). Files still need the receiver's "Accept" either way.
+// Earlier 4-picture codes (links / QR codes already shared) are still accepted.
 
 /**
  * Mascot id → [English, Thai] name (said aloud), and a fixed colour so every screen matches.
@@ -78,12 +80,13 @@ export const PICTURES = {
   rover: ['Rover', 'รถสำรวจ', 5],
 }
 export const PICTURE_IDS = Object.keys(PICTURES)
-export const PICTURE_LENGTH = 4
+/** Pictures in a new code (what the tap pad asks for). */
+export const PICTURE_LENGTH = 5
 
 export function isPictureCode(code) {
   if (typeof code !== 'string' || !code.startsWith('p-')) return false
   const ids = code.slice(2).split('-')
-  return ids.length === PICTURE_LENGTH && ids.every(id => id in PICTURES)
+  return (ids.length === PICTURE_LENGTH || ids.length === 4) && ids.every(id => Object.hasOwn(PICTURES, id))
 }
 
 /** Mascot ids of a picture code. */

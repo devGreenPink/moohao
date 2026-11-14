@@ -33,9 +33,10 @@ export function fmtTime(seconds) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
-function ext(name) {
+/** Lower-case file extension ("jpg"), or '' if there is none. Shared by the cards, offer and inbox. */
+export function fileExt(name) {
   const m = /\.([a-z0-9]{1,5})$/i.exec(name || '')
-  return m ? m[1] : 'file'
+  return m ? m[1].toLowerCase() : ''
 }
 
 /** Which file the byte counter is in. */
@@ -168,7 +169,7 @@ export function createTransferList(container, {compact = false, onCancel, onOpen
         img.alt = ''
         parts.thumb.append(img)
       } else {
-        parts.thumb.textContent = ext(f.name)
+        parts.thumb.textContent = fileExt(f.name) || 'file'
       }
       parts.count.textContent = vm.files.length > 1 ? t('fileOf', {i: i + 1, n: vm.files.length}) : fmtSize(f.size)
     }

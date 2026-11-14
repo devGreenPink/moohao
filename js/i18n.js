@@ -268,8 +268,11 @@ const strings = {
 
     // offer notes
     offerNoteMem: 'You can preview them here and save only what you want.',
-    offerNoteDisk: 'Large files: after you accept, choose where to save them.',
-    offerNoteStream: 'Large files: they download straight to your Downloads folder.',
+    offerNoteDisk: 'After you accept, choose where to save them.',
+    offerNoteStream: 'They download straight to your Downloads folder.',
+    offerBig: 'Large files. ',
+    offerInboxFull: 'This page already holds {size} of received files. ',
+    offerNoteFull: 'This page already holds {size} of received files. Save or clear some first so your phone doesn’t run out of memory.',
     moreFiles: '+ {n} more file(s)',
 
     // permissions
@@ -278,10 +281,10 @@ const strings = {
     camAllow: 'Allow camera',
 
     // picture room codes + sharing + pairing suggestion
-    joinByPics: 'Joining a friend’s room? Tap the same 4 pictures shown on their screen.',
+    joinByPics: 'Joining a friend’s room? Tap the same 5 pictures shown on their screen.',
     typeInstead: 'Type a code or paste a link instead',
-    picSay: 'On the other device, tap these 4 pictures in order, or scan the QR code.',
-    picSlot: 'Picked {n} of 4: {names}',
+    picSay: 'On the other device, tap these pictures in order, or scan the QR code.',
+    picSlot: 'Picked {n} of {total}: {names}',
     picNone: 'Nothing picked yet',
     removeLast: 'Remove the last picture',
     roomWord: 'Room',
@@ -557,8 +560,11 @@ const strings = {
 
     // offer notes
     offerNoteMem: 'รับแล้วดูตัวอย่างในแอปได้ และเลือกบันทึกเฉพาะไฟล์ที่ต้องการ',
-    offerNoteDisk: 'ไฟล์ใหญ่: หลังกดรับ จะให้เลือกที่บันทึกไฟล์ในเครื่อง',
-    offerNoteStream: 'ไฟล์ใหญ่: จะดาวน์โหลดลงโฟลเดอร์ดาวน์โหลดโดยตรง',
+    offerNoteDisk: 'หลังกดรับ จะให้เลือกที่บันทึกไฟล์ในเครื่อง',
+    offerNoteStream: 'ไฟล์จะดาวน์โหลดลงโฟลเดอร์ดาวน์โหลดโดยตรง',
+    offerBig: 'ไฟล์ใหญ่: ',
+    offerInboxFull: 'หน้านี้เก็บไฟล์ที่ได้รับไว้แล้ว {size}: ',
+    offerNoteFull: 'หน้านี้เก็บไฟล์ที่ได้รับไว้แล้ว {size} บันทึกหรือล้างบางส่วนก่อน เครื่องจะได้ไม่หน่วยความจำเต็ม',
     moreFiles: '+ อีก {n} ไฟล์',
 
     // permissions
@@ -567,10 +573,10 @@ const strings = {
     camAllow: 'อนุญาตให้ใช้กล้อง',
 
     // picture room codes + sharing + pairing suggestion
-    joinByPics: 'จะเข้าห้องของเพื่อน? แตะตัวละคร 4 ตัวให้ตรงกับหน้าจอของอีกเครื่อง',
+    joinByPics: 'จะเข้าห้องของเพื่อน? แตะตัวละคร 5 ตัวให้ตรงกับหน้าจอของอีกเครื่อง',
     typeInstead: 'พิมพ์รหัสหรือวางลิงก์แทน',
-    picSay: 'ให้อีกเครื่องแตะตัวละคร 4 ตัวนี้ตามลำดับ หรือสแกน QR',
-    picSlot: 'เลือกแล้ว {n} จาก 4: {names}',
+    picSay: 'ให้อีกเครื่องแตะตัวละครเหล่านี้ตามลำดับ หรือสแกน QR',
+    picSlot: 'เลือกแล้ว {n} จาก {total}: {names}',
     picNone: 'ยังไม่ได้เลือก',
     removeLast: 'ลบตัวสุดท้าย',
     roomWord: 'ห้อง',

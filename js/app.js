@@ -1,5 +1,5 @@
 import {t, lang, setLang, applyStatic} from './i18n.js'
-import {createSession, detectNetworkRoom, codeRoom, pairRoom, randomId} from './net.js'
+import {createSession, detectNetworkRoom, codeRoom, pairRoom, randomId, RESUME_WAIT_MS} from './net.js'
 import {parseRoomCode, displayCode, codeWords, isWordCode, isPictureCode, pictureIds, pictureCode, newPictureCode, PICTURES, PICTURE_IDS, PICTURE_LENGTH} from './words.js'
 import {notifyState, toggleNotify, notify, closeNotification, onNotificationAction, buzz, bumpBadge, clearBadge} from './notify.js'
 import {scannerSupported, runScanner} from './ui/scanner.js'
@@ -13,7 +13,7 @@ import {ICONS} from './ui/mascot.js'
 import {createRadar} from './ui/radar.js'
 import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
-import {createTransferList, fmtSize, fmtTime} from './ui/transfers.js'
+import {createTransferList, fmtSize, fmtTime, fileExt} from './ui/transfers.js'
 import {createInbox} from './ui/inbox.js'
 import {createSky} from './ui/sky.js'
 import {effectsOn, powerSetting, setPowerSetting, isLite, liteReason, onPowerChange} from './ui/effects.js'
@@ -28,8 +28,11 @@ const TRAY_LINGER_MS = 8_000
 const PANEL_LINGER_MS = 60_000
 /** Failed / cancelled / declined cards stay until removed (or this long), so they can be retried. */
 const PROBLEM_LINGER_MS = 15 * 60_000
-/** How long a dropped transfer waits for the other device (matches RESUME_WAIT_MS in net.js). */
-const RESUME_WAIT_S = 90
+/**
+ * Received files kept in this page add up; past this total, new files go to disk / Downloads
+ * instead, so a phone doesn't run out of memory and close the tab (losing everything unsaved).
+ */
+const INBOX_BUDGET = 512 * 1024 ** 2
 
 // ---------- small helpers ----------
 
@@ -41,10 +44,6 @@ function store(key, value) {
   return null
 }
 
-function ext(name) {
-  const m = /\.([a-z0-9]{1,5})$/i.exec(name || '')
-  return m ? m[1] : 'file'
-}
 
 function toast(text, ms = 2600) {
   const el = document.createElement('div')
@@ -577,9 +576,9 @@ function transferState(tid, status) {
   scheduleTransferRender()
 }
 
-/** Seconds a dropped transfer will still wait for the other device. */
+/** Seconds a dropped transfer will still wait for the other device (same limit net.js uses). */
 function waitLeft(x) {
-  return Math.max(0, RESUME_WAIT_S - (Date.now() - x.pausedAt) / 1000)
+  return Math.max(0, (RESUME_WAIT_MS - (Date.now() - x.pausedAt)) / 1000)
 }
 
 // While something is reconnecting, redraw once a second so its countdown moves.
@@ -653,7 +652,11 @@ function transferNote(x) {
   if (s === 'failed') note = out ? t('xNoteFailedOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteFailedIn')
   else if (s === 'cancelled') note = out ? t('xNoteCancelledOut', {name}) : t(x.sinkKind === 'stream' ? 'xNoteFailedStream' : 'xNoteCancelledIn')
   else if (s === 'declined') note = t('xNoteDeclined', {name})
-  else if (s === 'done' && !out) note = t(x.sinkKind === 'memory' ? 'xNoteDoneMem' : x.sinkKind === 'disk' ? 'xNoteDoneDisk' : 'xNoteDoneStream')
+  else if (s === 'done' && !out) {
+    // (nothing to say about in-page files once they've been deleted from the received list)
+    if (x.sinkKind !== 'memory') note = t(x.sinkKind === 'disk' ? 'xNoteDoneDisk' : 'xNoteDoneStream')
+    else if (inbox.has(x.tid)) note = t('xNoteDoneMem')
+  }
   if (out && PROBLEM.has(s) && x.sources && !peerReachable(x.peerId)) note += ' ' + t('xNoteOffline', {name})
   return note
 }
@@ -688,6 +691,11 @@ function scheduleTransferRender() {
   })
 }
 
+/** Only touch the attribute when it changes: this runs every frame while files move. */
+function setHidden(el, hidden) {
+  if (el.hidden !== hidden) el.hidden = hidden
+}
+
 function renderTransfers() {
   const now = Date.now()
   const list = [...state.xfers.values()].sort((a, b) => (isActive(b) - isActive(a)) || b.finishedAt - a.finishedAt)
@@ -698,13 +706,13 @@ function renderTransfers() {
   const visible = (x, linger) => isActive(x) || x.status !== 'done' || now - x.finishedAt < linger
   const inTray = list.filter(x => visible(x, TRAY_LINGER_MS) && !(panelShows && x.peerId === sel))
   trayList.render(inTray.map(viewModel))
-  $('#tray').hidden = !inTray.length && $('#suggest').hidden
+  setHidden($('#tray'), !inTray.length && $('#suggest').hidden)
   state.trayFinished = finishedIn(inTray)
-  $('#tray-head').hidden = !state.trayFinished.length
+  setHidden($('#tray-head'), !state.trayFinished.length)
   const inPanel = sel ? list.filter(x => x.peerId === sel && visible(x, PANEL_LINGER_MS)) : []
   panelList.render(inPanel.map(viewModel))
   state.panelFinished = finishedIn(inPanel)
-  $('#panel-xfers-clear').hidden = !state.panelFinished.length
+  setHidden($('#panel-xfers-clear'), !state.panelFinished.length)
   // particle beams on the radar for transfers that are moving bytes
   const beams = new Map()
   for (const x of list) if (x.status === 'active') beams.set(x.peerId, x.dir)
@@ -968,7 +976,7 @@ function fileRow(file, {thumb, url}) {
     visual.alt = ''
   } else {
     visual = document.createElement('span')
-    visual.textContent = ext(file.name)
+    visual.textContent = fileExt(file.name) || 'file'
   }
   visual.className = 'thumb'
   const meta = document.createElement('div')
@@ -998,9 +1006,22 @@ function safeThumb(thumb) {
  * Pick where the incoming bytes go. Runs right after the Accept click, so the folder /
  * save picker (Chrome, Edge) is still allowed to open.
  */
+/**
+ * Where an incoming offer will go: 'memory' (kept in this page, can be previewed),
+ * 'disk' (save picker), 'stream' (straight to Downloads) or 'too-big'.
+ * Memory only while the page's received files stay under INBOX_BUDGET in total.
+ */
+function sinkPlan(count, total) {
+  if (total <= MEMORY_SINK_LIMIT && inbox.bytes + total <= INBOX_BUDGET) return 'memory'
+  if (diskSupported(count)) return 'disk'
+  if (streamSupported()) return 'stream'
+  return total <= MEMORY_FALLBACK_LIMIT ? 'memory' : 'too-big'
+}
+
 async function chooseSink(files, total) {
-  if (total <= MEMORY_SINK_LIMIT) return memorySink(files)
-  if (diskSupported(files.length)) {
+  const plan = sinkPlan(files.length, total)
+  if (plan === 'memory') return memorySink(files)
+  if (plan === 'disk') {
     try {
       return await diskSink(files)
     } catch (err) {
@@ -1029,11 +1050,16 @@ function askOffer(peerId, data, signal, session) {
       rows.push(more)
     }
     $('#offer-files').replaceChildren(...rows)
-    // Say what happens after "Accept" (save picker, straight to Downloads, or preview here).
-    $('#offer-note').textContent = total <= MEMORY_SINK_LIMIT ? t('offerNoteMem')
-      : diskSupported(data.files.length) ? t('offerNoteDisk')
-      : streamSupported() ? t('offerNoteStream')
-      : total > MEMORY_FALLBACK_LIMIT ? t('tooBigHere', {size: fmtSize(total)}) : t('offerNoteMem')
+    // Say what happens after "Accept" (save picker, straight to Downloads, or preview here),
+    // and why, when it's because the files already kept in this page add up.
+    const plan = sinkPlan(data.files.length, total)
+    const full = inbox.bytes + total > INBOX_BUDGET
+    const why = total > MEMORY_SINK_LIMIT ? t('offerBig') : full ? t('offerInboxFull', {size: fmtSize(inbox.bytes)}) : ''
+    $('#offer-note').textContent = plan === 'too-big' ? t('tooBigHere', {size: fmtSize(total)})
+      : plan === 'disk' ? why + t('offerNoteDisk')
+      : plan === 'stream' ? why + t('offerNoteStream')
+      : full ? t('offerNoteFull', {size: fmtSize(inbox.bytes)})
+      : t('offerNoteMem')
     const code = await session.verificationCode(peerId).catch(() => null)
     $('#offer-verify').hidden = !code
     $('#offer-code').textContent = code || ''
@@ -1126,7 +1152,9 @@ function showReceived(peerId, tid) {
   flagTitle()
   const title = t('receivedTitle', {name})
   if (inbox.isOpen()) return inbox.open({title, highlight: tid})
-  enqueue(() => (inbox.has(tid) ? inbox.open({title, highlight: tid}) : null))
+  // Several batches can arrive while nobody is looking; the list shows them all, so once
+  // it has been on screen the later queued opens have nothing new to show.
+  enqueue(() => (inbox.has(tid) && !inbox.seen(tid) ? inbox.open({title, highlight: tid}) : null))
 }
 
 const inbox = createInbox({
@@ -1698,7 +1726,7 @@ function renderPicPad() {
     return slot
   }))
   const names = picked.map(id => PICTURES[id][lang === 'th' ? 1 : 0]).join(', ')
-  slots.setAttribute('aria-label', picked.length ? t('picSlot', {n: picked.length, names}) : t('picNone'))
+  slots.setAttribute('aria-label', picked.length ? t('picSlot', {n: picked.length, total: PICTURE_LENGTH, names}) : t('picNone'))
   $('#pic-back').disabled = !picked.length
   pad.classList.toggle('is-full', picked.length >= PICTURE_LENGTH)
 }
@@ -1748,6 +1776,8 @@ async function joinCode(code) {
 
 $('#btn-room').addEventListener('click', openRoomDialog)
 $('#room-create').addEventListener('click', async () => {
+  // Moving to a new room stops transfers on the current network, like joining one does.
+  if (!(await okToSwitch())) return
   await enterRoom(newPictureCode())
   renderRoomDialog()
 })
