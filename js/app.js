@@ -266,11 +266,10 @@ function nameOf(id) {
 
 // ---------- UI components ----------
 
-function describePeer(info, status, tier) {
+function describePeer(info, status, tier, unread = 0) {
   const sys = [info.os, info.browser].filter(Boolean).join(' ')
   const parts = [info.displayName, t(info.device) + (sys ? ` (${sys})` : ''), t(tier === 'paired' ? 'pairedBadge' : tier === 'known' ? 'tagKnown' : 'tagNew')]
   if (status?.text) parts.push(status.text)
-  const unread = state.chats.get(info.deviceId)?.unread
   if (unread) parts.push(t('unreadLabel', {n: unread}))
   return parts.join(', ')
 }
@@ -946,10 +945,18 @@ async function sendFiles(id, files) {
 
 /** Send a message; it shows up in the conversation right away and is marked if it fails. */
 async function sendText(id, text) {
+  if (!text.trim()) return
+  if (!state.peers.has(id)) return toast(t('failed'))
   const session = sessionFor(id)
-  if (!state.peers.has(id) || !text.trim() || !session) return
-  const m = {dir: 'out', text, at: Date.now(), pending: true}
+  const m = {dir: 'out', text, at: Date.now(), pending: !!session}
   pushMessage(id, m)
+  if (!session) {
+    // the device just dropped off (still on the radar for a moment): keep the message,
+    // marked "Not sent", rather than letting what was typed vanish
+    m.failed = true
+    renderChat()
+    return toast(t('failed'))
+  }
   renderChat()
   try {
     await session.sendText(id, text)
@@ -1098,7 +1105,7 @@ async function chooseSink(files, total) {
 const FLOOD_RULES = {
   offer: {pending: 1, perMinute: 6},
   pair: {pending: 1, perMinute: 2},
-  text: {pending: 1000, perMinute: 30}, // messages don't open dialogs any more, only a toast
+  text: {perMinute: 30}, // messages don't open dialogs (nothing waits), only a toast
 }
 const FLOOD_MUTE_MS = 2 * 60_000
 const flood = new Map() // peerId -> {mutedUntil, told, offer|pair|text: {pending, times}}
@@ -1128,9 +1135,9 @@ function admit(peerId, kind) {
     }
     return 0
   }
-  if (k.pending >= rule.pending) return 0
+  if (rule.pending && k.pending >= rule.pending) return 0
   k.times.push(now)
-  k.pending++
+  if (rule.pending) k.pending++
   return now
 }
 
@@ -1360,7 +1367,14 @@ const chat = createChat({
   empty: $('#chat-empty'),
   form: $('#chat-form'),
   input: $('#chat-input'),
-  onSend: text => radar.selected && sendText(radar.selected, text),
+  onSend: text => {
+    const id = radar.selected
+    if (!id || !state.peers.has(id)) {
+      toast(t('failed'))
+      return false
+    }
+    sendText(id, text)
+  },
   copyText,
 })
 
@@ -1392,17 +1406,20 @@ function markRead(id) {
   if (id && state.peers.has(id)) setUnread(id, 0)
 }
 
-// Coming back to the page with the conversation open counts as reading it.
+// Coming back to the page with the conversation open counts as reading it, and so does
+// scrolling it into view (on phones the panel sits below the radar).
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && radar.selected && chatVisible(radar.selected)) markRead(radar.selected)
 })
+new IntersectionObserver(entries => {
+  if (entries.some(e => e.isIntersecting) && radar.selected && !document.hidden) markRead(radar.selected)
+}).observe($('#chat-list'))
 
 const messageToasts = new Map() // peerId -> toast element, so a burst updates one toast
 
 function receiveText(peerId, text) {
-  // still rate-limited per device, but nothing piles up: no dialog to queue
+  // still rate-limited per device (no dialog, so nothing waits and no slot to hold)
   if (!admit(peerId, 'text')) return
-  release(peerId, 'text')
   const name = nameOf(peerId)
   pushMessage(peerId, {dir: 'in', text, at: Date.now()})
   renderChat()
@@ -2279,6 +2296,12 @@ $('#btn-notify').addEventListener('click', async () => {
 
 // Buttons pressed on a notification (Accept / Decline on an incoming offer).
 onNotificationAction(({action, tag}) => {
+  // a message notification opens that conversation
+  if (action === 'open' && tag?.startsWith('msg-')) {
+    const peerId = tag.slice(4)
+    if (state.peers.has(peerId)) openChat(peerId)
+    return
+  }
   const dlg = $('#dlg-offer')
   if (tag && tag === state.offerTag && dlg.open) {
     if (action === 'accept') dlg.close('yes')

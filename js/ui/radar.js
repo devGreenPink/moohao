@@ -42,7 +42,7 @@ const SWEEP_MS = 7000
  * options:
  *  onActivate(id)               – node clicked / Enter / Space
  *  onDropFiles(id, dataTransfer) – files dropped onto a node
- *  describe(info, status, tier) – accessible label for a node
+ *  describe(info, status, tier, unread) – accessible label for a node
  */
 export function createRadar(root, {onActivate, onDropFiles, describe}) {
   const field = root.querySelector('.radar-nodes')
@@ -249,7 +249,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
 
   function refreshLabel(id) {
     const node = nodes.get(id)
-    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.tier))
+    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.tier, node.unread || 0))
   }
 
   function create(id, info) {

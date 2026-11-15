@@ -45,6 +45,16 @@ const timeOf = ts => new Date(ts).toLocaleTimeString(document.documentElement.la
  */
 export function createChat({list, empty, form, input, onSend, copyText}) {
   let rendered = '' // what's on screen, so frequent panel refreshes don't redraw for nothing
+  // One reply box, but a draft per conversation: switching device keeps what you typed
+  // for the other one, and never sends it to the wrong device.
+  const drafts = new Map()
+  let currentKey = null
+  // Touch keyboards have no Shift+Enter, so there Enter makes a new line and the send
+  // button sends; with a real keyboard Enter sends.
+  const touch = matchMedia('(pointer: coarse)')
+  const setEnterHint = () => { input.enterKeyHint = touch.matches ? 'enter' : 'send' }
+  setEnterHint()
+  touch.addEventListener?.('change', setEnterHint)
 
   function bubble(m) {
     const li = document.createElement('li')
@@ -86,15 +96,19 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
     e.preventDefault()
     const text = input.value.trim()
     if (!text) return
-    onSend(text)
+    if (onSend(text) === false) return // nowhere to send it: keep what was typed
     input.value = ''
+    drafts.delete(currentKey)
     fit()
     input.focus()
   })
-  input.addEventListener('input', fit)
+  input.addEventListener('input', () => {
+    fit()
+    if (currentKey !== null) drafts.set(currentKey, input.value)
+  })
   input.addEventListener('keydown', e => {
     // Enter sends, Shift+Enter is a new line (and never while an input method is composing)
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !touch.matches) {
       e.preventDefault()
       form.requestSubmit()
     }
@@ -103,6 +117,13 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
   return {
     /** Draw a thread (key identifies it, so switching devices always redraws). */
     render(key, messages) {
+      if (key !== currentKey) {
+        // switching conversation: put away this one's draft, bring back the other's
+        if (currentKey !== null) drafts.set(currentKey, input.value)
+        currentKey = key
+        input.value = drafts.get(key) || ''
+        fit()
+      }
       const sig = `${key}|${messages.length}|${messages.filter(m => m.failed).length}|${messages.filter(m => m.pending).length}|${document.documentElement.lang}`
       if (sig === rendered) return
       const sameThread = rendered.split('|')[0] === String(key)
