@@ -202,6 +202,7 @@ function channelDrained(channel) {
  *  onIncomingDone(peerId, tid)
  *  onIncomingFailed(peerId, tid, reason)      reason: 'failed' | 'cancelled'
  *  onText(peerId, text)
+ *  onTyping(peerId, on)                       the other side started / stopped typing to us
  *  onPairRequest(peerId, {secret, name, deviceId}, signal) => Promise<boolean>
  *  onPairConfirmed(peerId, {secret, name, deviceId})   requester saved the pairing too
  *  onUnpair(peerId, pairId)
@@ -357,6 +358,10 @@ export function createSession({roomId, password}, me, handlers) {
 
   ctrl.onMessage = (msg, {peerId}) => {
     if (!msg || typeof msg !== 'object') return
+    if (msg.t === 'typing') {
+      handlers.onTyping?.(peerId, msg.on === true)
+      return
+    }
     if (msg.t === 'unpair' && typeof msg.pid === 'string') {
       handlers.onUnpair?.(peerId, msg.pid)
       return
@@ -607,6 +612,11 @@ export function createSession({roomId, password}, me, handlers) {
 
     sendText(peerId, value) {
       return text.send(value, {target: peerId})
+    },
+
+    /** Tell one device we're typing to it (on) or stopped (off). Best effort. */
+    sendTyping(peerId, on) {
+      return ctrl.send({t: 'typing', on: !!on}, {target: peerId}).catch(() => {})
     },
 
     /** Cancel a transfer in either direction (including an offer still awaiting an answer). */

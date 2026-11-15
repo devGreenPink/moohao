@@ -266,10 +266,11 @@ function nameOf(id) {
 
 // ---------- UI components ----------
 
-function describePeer(info, status, tier, unread = 0) {
+function describePeer(info, status, tier, unread = 0, typing = false) {
   const sys = [info.os, info.browser].filter(Boolean).join(' ')
   const parts = [info.displayName, t(info.device) + (sys ? ` (${sys})` : ''), t(tier === 'paired' ? 'pairedBadge' : tier === 'known' ? 'tagKnown' : 'tagNew')]
   if (status?.text) parts.push(status.text)
+  if (typing) parts.push(t('typingShort'))
   if (unread) parts.push(t('unreadLabel', {n: unread}))
   return parts.join(', ')
 }
@@ -478,6 +479,9 @@ function removePeerNow(id) {
   const p = state.peers.get(id)
   if (!p) return
   clearTimeout(p.clearTimer)
+  clearTimeout(typingFrom.get(id))
+  typingFrom.delete(id)
+  if (typingTo === id) typingTo = null
   state.peers.delete(id)
   flood.delete(id)
   radar.remove(id)
@@ -1367,6 +1371,8 @@ const chat = createChat({
   empty: $('#chat-empty'),
   form: $('#chat-form'),
   input: $('#chat-input'),
+  typingEl: $('#chat-typing'),
+  onTyping: on => sendTyping(on),
   onSend: text => {
     const id = radar.selected
     if (!id || !state.peers.has(id)) {
@@ -1383,6 +1389,37 @@ function renderChat() {
   const id = radar.selected
   if (!id || !state.peers.has(id)) return
   chat.render(chatKey(id), thread(id).messages)
+  renderTyping()
+}
+
+// ---------- "is typing…" ----------
+
+/** How long "typing" stays up without a refresh from the other side (they resend every ~3 s). */
+const TYPING_SHOW_MS = 6000
+const typingFrom = new Map() // peerId -> timer that clears their "typing"
+let typingTo = null // the device we last told we're typing to
+
+/** We started / stopped typing in the reply box: tell only the device we're talking to. */
+function sendTyping(on) {
+  const id = on ? radar.selected : null
+  if (typingTo && typingTo !== id) sessionFor(typingTo)?.sendTyping(typingTo, false)
+  typingTo = id
+  if (id && state.peers.has(id)) sessionFor(id)?.sendTyping(id, true)
+}
+
+function receiveTyping(peerId, on) {
+  clearTimeout(typingFrom.get(peerId))
+  if (on && state.peers.has(peerId)) {
+    typingFrom.set(peerId, setTimeout(() => receiveTyping(peerId, false), TYPING_SHOW_MS))
+  } else typingFrom.delete(peerId)
+  radar.setTyping(peerId, typingFrom.has(peerId))
+  renderTyping()
+}
+
+/** "<name> is typing…" under the open conversation. */
+function renderTyping() {
+  const id = radar.selected
+  chat.showTyping(id && typingFrom.has(id) ? t('isTyping', {name: nameOf(id)}) : null)
 }
 
 /** Is this device's conversation on screen right now? */
@@ -1421,6 +1458,7 @@ function receiveText(peerId, text) {
   // still rate-limited per device (no dialog, so nothing waits and no slot to hold)
   if (!admit(peerId, 'text')) return
   const name = nameOf(peerId)
+  if (typingFrom.has(peerId)) receiveTyping(peerId, false) // the message is here: done typing
   pushMessage(peerId, {dir: 'in', text, at: Date.now()})
   renderChat()
   if (chatVisible(peerId)) return chime()
@@ -1724,6 +1762,7 @@ function makeHandlers(key) {
     onIncomingDone,
     onIncomingFailed,
     onText: receiveText,
+    onTyping: receiveTyping,
     onPairRequest: (id, request, signal) => askPair(id, request, signal, self()),
     onPairConfirmed,
     onUnpair: onRemoteUnpair,

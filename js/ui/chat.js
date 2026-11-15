@@ -39,12 +39,38 @@ function linkified(text) {
 
 const timeOf = ts => new Date(ts).toLocaleTimeString(document.documentElement.lang || undefined, {hour: '2-digit', minute: '2-digit'})
 
+/** While typing, remind the other side at most this often; stop after this long without a key. */
+const TYPING_REPEAT_MS = 3000
+const TYPING_IDLE_MS = 4000
+
 /**
- * options: {list, empty, form, input, onSend(text), copyText(text) → Promise<boolean>}
+ * options: {list, empty, form, input, typingEl, onSend(text), onTyping(on),
+ *           copyText(text) → Promise<boolean>}
  * Messages: [{dir: 'in' | 'out', text, at, pending?, failed?}]
  */
-export function createChat({list, empty, form, input, onSend, copyText}) {
+export function createChat({list, empty, form, input, typingEl, onSend, onTyping, copyText}) {
   let rendered = '' // what's on screen, so frequent panel refreshes don't redraw for nothing
+
+  // "is typing" for the other side: on while there's text and keys keep coming, off after
+  // a few quiet seconds, on send, on leaving the box, or when switching conversation
+  let typingOn = false
+  let typingSentAt = 0
+  let idleTimer = 0
+  function typing(on) {
+    clearTimeout(idleTimer)
+    if (on) {
+      const now = Date.now()
+      if (!typingOn || now - typingSentAt > TYPING_REPEAT_MS) {
+        typingOn = true
+        typingSentAt = now
+        onTyping?.(true)
+      }
+      idleTimer = setTimeout(() => typing(false), TYPING_IDLE_MS)
+    } else if (typingOn) {
+      typingOn = false
+      onTyping?.(false)
+    }
+  }
   // One reply box, but a draft per conversation: switching device keeps what you typed
   // for the other one, and never sends it to the wrong device.
   const drafts = new Map()
@@ -97,6 +123,7 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
     const text = input.value.trim()
     if (!text) return
     if (onSend(text) === false) return // nowhere to send it: keep what was typed
+    typing(false)
     input.value = ''
     drafts.delete(currentKey)
     fit()
@@ -105,7 +132,9 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
   input.addEventListener('input', () => {
     fit()
     if (currentKey !== null) drafts.set(currentKey, input.value)
+    typing(input.value.trim().length > 0)
   })
+  input.addEventListener('blur', () => typing(false))
   input.addEventListener('keydown', e => {
     // Enter sends, Shift+Enter is a new line (and never while an input method is composing)
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !touch.matches) {
@@ -119,6 +148,7 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
     render(key, messages) {
       if (key !== currentKey) {
         // switching conversation: put away this one's draft, bring back the other's
+        typing(false)
         if (currentKey !== null) drafts.set(currentKey, input.value)
         currentKey = key
         input.value = drafts.get(key) || ''
@@ -137,6 +167,15 @@ export function createChat({list, empty, form, input, onSend, copyText}) {
     focus() {
       input.focus()
       input.scrollIntoView({block: 'nearest'})
+    },
+    /** Show "<name> is typing…" under the conversation, or hide it (null). */
+    showTyping(label) {
+      typingEl.hidden = !label
+      typingEl.querySelector('.who').textContent = label || ''
+      if (label) {
+        const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40
+        if (nearBottom) list.scrollTop = list.scrollHeight
+      }
     },
   }
 }

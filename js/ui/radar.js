@@ -42,7 +42,7 @@ const SWEEP_MS = 7000
  * options:
  *  onActivate(id)               – node clicked / Enter / Space
  *  onDropFiles(id, dataTransfer) – files dropped onto a node
- *  describe(info, status, tier, unread) – accessible label for a node
+ *  describe(info, status, tier, unread, typing) – accessible label for a node
  */
 export function createRadar(root, {onActivate, onDropFiles, describe}) {
   const field = root.querySelector('.radar-nodes')
@@ -249,7 +249,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
 
   function refreshLabel(id) {
     const node = nodes.get(id)
-    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.tier, node.unread || 0))
+    if (node) node.el.setAttribute('aria-label', describe(node.info, node.status, node.tier, node.unread || 0, !!node.typing))
   }
 
   function create(id, info) {
@@ -270,7 +270,8 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         <span class="node-unread" aria-hidden="true"></span>
       </span>
       <span class="node-name"><span class="node-device" aria-hidden="true"></span><span class="node-label"></span></span>
-      <span class="node-status" aria-hidden="true"></span>`
+      <span class="node-status" aria-hidden="true"></span>
+      <span class="node-typing" aria-hidden="true"><i></i><i></i><i></i></span>`
 
     const beam = document.createElement('div')
     beam.className = 'beam'
@@ -407,6 +408,14 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     get selected() { return selected },
     ids: () => [...nodes.keys()],
     focus: id => nodes.get(id)?.el.focus(),
+    /** A device is typing a message to you: three bouncing dots under its name. */
+    setTyping(id, on) {
+      const node = nodes.get(id)
+      if (!node || !!node.typing === on) return
+      node.typing = on
+      node.el.classList.toggle('is-typing', on)
+      refreshLabel(id)
+    },
     /** Unread messages from a device: a little count bubble on its avatar. */
     setUnread(id, n) {
       const node = nodes.get(id)

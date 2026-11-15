@@ -145,6 +145,10 @@
           <section class="panel-sec chat-sec" id="panel-chat">
             <h4 data-i18n="secChat"></h4>
             <ol class="chat-list" id="chat-list" aria-live="polite"></ol>
+            <p class="chat-typing" id="chat-typing" role="status" hidden>
+              <span class="typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="who"></span>
+            </p>
             <p class="muted small chat-empty" id="chat-empty" data-i18n="chatEmpty"></p>
             <form class="chat-form" id="chat-form">
               <textarea id="chat-input" rows="1" maxlength="10000" data-i18n-placeholder="chatPlaceholder" data-i18n-title="chatPlaceholder"></textarea>
