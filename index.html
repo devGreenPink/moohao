@@ -458,23 +458,26 @@
       <div class="preview-head">
         <div class="preview-title">
           <b id="preview-name"></b>
-          <span class="muted small" id="preview-meta"></span>
+          <span class="preview-meta" id="preview-meta"></span>
         </div>
+        <span class="preview-pos" id="preview-pos"></span>
+        <a class="btn primary small preview-save" id="preview-save" data-i18n-title="save">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+          <span data-i18n="save"></span>
+        </a>
         <button class="icon-btn" value="close" data-i18n-title="close">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>
-      <div class="preview-stage" id="preview-stage"></div>
-      <div class="preview-foot">
-        <button type="button" class="icon-btn" id="preview-prev" data-i18n-title="prevFile">
+      <div class="preview-stage" id="preview-stage">
+        <button type="button" class="preview-nav prev" id="preview-prev" data-i18n-title="prevFile">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>
         </button>
-        <span class="muted small" id="preview-pos"></span>
-        <button type="button" class="icon-btn" id="preview-next" data-i18n-title="nextFile">
+        <button type="button" class="preview-nav next" id="preview-next" data-i18n-title="nextFile">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>
         </button>
-        <a class="btn primary small" id="preview-save" data-i18n="save"></a>
       </div>
+      <div class="preview-strip" id="preview-strip" hidden></div>
     </form>
   </dialog>
 

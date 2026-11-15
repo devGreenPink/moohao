@@ -9,12 +9,20 @@
 import {t, lang} from '../i18n.js'
 import {ICONS} from './mascot.js'
 import {fmtSize, fileExt, isRisky} from './transfers.js'
+import {effectsOn} from './effects.js'
 
 const $ = sel => document.querySelector(sel)
 
 /** Above this much held in memory, the note turns into a gentle warning. */
 const BIG_INBOX = 1024 ** 3
 const TEXT_PREVIEW_BYTES = 200 * 1024
+/** How long the viewer keeps the current file up while the next image decodes. */
+const DECODE_WAIT_MS = 350
+const SLIDE_MS = 260
+/** Only images this small are decoded ahead: a 48 MP photo decodes to ~190 MB. */
+const PRELOAD_MAX_BYTES = 8 * 1024 * 1024
+
+const wait = ms => new Promise(r => setTimeout(r, ms))
 
 const EXT = {
   image: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'],
@@ -79,6 +87,9 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
   let rowsLang = null
 
   const urlOf = it => (it.url ??= URL.createObjectURL(it.blob))
+  // One image URL per file (thumbnail and viewer share it, so it decodes once), kept with the
+  // file and revoked when it is deleted: a thumbnail that never loads can't pin the image.
+  const imageUrl = it => (it.thumbUrl ??= URL.createObjectURL(new Blob([it.blob], {type: previewType('image', it)})))
   const bytes = () => items.reduce((s, it) => s + it.size, 0)
   const unsaved = () => items.filter(it => !it.saved).length
 
@@ -102,9 +113,7 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
       img.alt = ''
       img.loading = 'lazy'
       img.decoding = 'async'
-      // One URL per file, kept with the file and revoked when it's deleted, so a thumbnail
-      // that never loads (off-screen, lazy) can't leave the image pinned in memory.
-      img.src = it.thumbUrl ??= URL.createObjectURL(new Blob([it.blob], {type: previewType('image', it)}))
+      img.src = imageUrl(it)
       img.addEventListener('load', () => box.classList.add('ready'), {once: true})
       img.addEventListener('error', () => {
         it.thumbFailed = true
@@ -243,6 +252,12 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
 
   function changed() {
     if (dlg.open) render()
+    if (pdlg.open && current && items.includes(current)) {
+      // files arrived while previewing: keep the counter and the strip in step
+      const all = previewable()
+      header(current, all)
+      renderStrip(all)
+    }
     onChange?.()
   }
 
@@ -303,102 +318,259 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
   })
 
   // ---------- preview ----------
+  //
+  // A lightbox: the file fills most of the screen, arrows sit on its sides and a strip of
+  // thumbnails runs underneath. The next file slides in only once it's decoded (no blank
+  // flash in between), its neighbours are decoded ahead, and on touch screens you can swipe.
 
   const pdlg = $('#dlg-preview')
   const stage = $('#preview-stage')
+  const strip = $('#preview-strip')
+  const animated = effectsOn
   let current = null
-  let previewUrl = null
+  let slide = null // the slide on screen
+  let waitTimer = 0 // puts a skeleton up if the first file takes a moment
+  let seq = 0 // bumped by every show() and by closing: an older show() gives up
+  let stripKey = ''
 
-  function clearStage() {
-    stage.querySelectorAll('video, audio').forEach(m => m.pause())
-    stage.replaceChildren()
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
-    previewUrl = null
+  /** Previewable files, in display order (what the arrows and the strip step through). */
+  const previewable = () => ordered().flat().filter(it => previewKind(it))
+
+  function dropSlide(el) {
+    el.querySelectorAll('video, audio').forEach(m => m.pause())
+    if (el._url) URL.revokeObjectURL(el._url)
+    el.remove()
   }
 
-  function message(text) {
+  function clearStage() {
+    clearTimeout(waitTimer)
+    stage.querySelectorAll('.preview-slide, .preview-wait').forEach(dropSlide)
+    slide = null
+  }
+
+  function newSlide(kind) {
+    const s = document.createElement('div')
+    s.className = 'preview-slide'
+    s.dataset.kind = kind
+    return s
+  }
+
+  function messageEl(text) {
     const p = document.createElement('p')
     p.className = 'preview-msg'
     p.textContent = text
-    stage.replaceChildren(p)
-    stage.dataset.kind = 'none'
+    return p
   }
 
-  /** Previewable files, in display order (what the arrows step through). */
-  const previewable = () => ordered().flat().filter(it => previewKind(it))
+  const messageSlide = text => {
+    const s = newSlide('none')
+    s.append(messageEl(text))
+    return s
+  }
 
-  async function show(it) {
-    clearStage()
-    current = it
-    const all = previewable()
-    const i = all.indexOf(it)
-    $('#preview-name').textContent = it.name
+  /** A slide that turned out unreadable after it was shown. */
+  const failIn = s => () => {
+    if (!s.isConnected) return
+    s.dataset.kind = 'none'
+    s.replaceChildren(messageEl(t('previewFailed')))
+  }
+
+  function skeleton() {
+    const sk = document.createElement('div')
+    sk.className = 'skeleton preview-skeleton'
+    return sk
+  }
+
+  /** The slide for a file; resolves when it's worth showing (an image is decoded). */
+  async function build(it) {
+    const kind = previewKind(it)
+    if (!kind) return messageSlide(t('noPreview'))
+    if (kind === 'pdf' && navigator.pdfViewerEnabled === false) return messageSlide(t('pdfNoViewer'))
+    const s = newSlide(kind)
+
+    if (kind === 'text') {
+      let text
+      try {
+        text = await it.blob.slice(0, TEXT_PREVIEW_BYTES).text()
+      } catch {
+        return messageSlide(t('previewFailed'))
+      }
+      const pre = document.createElement('pre')
+      pre.textContent = it.size > TEXT_PREVIEW_BYTES ? `${text}\n${t('textCut')}` : text
+      s.append(pre)
+      return s
+    }
+
+    if (kind === 'image') {
+      const img = document.createElement('img')
+      img.alt = it.name
+      img.decoding = 'async'
+      img.draggable = false
+      img.src = imageUrl(it)
+      // Hold the current file until this one is decoded, but not for long: a huge photo
+      // shows a skeleton instead of making the arrows feel stuck.
+      const ok = await Promise.race([img.decode().then(() => true, () => false), wait(DECODE_WAIT_MS)])
+      if (ok === false) return messageSlide(t('previewFailed'))
+      if (!ok) {
+        const sk = skeleton()
+        s.append(sk)
+        if (img.complete && img.naturalWidth) sk.remove()
+        else {
+          img.addEventListener('load', () => sk.remove(), {once: true})
+          img.addEventListener('error', failIn(s), {once: true})
+        }
+      }
+      s.append(img)
+      return s
+    }
+
+    // video, audio, PDF: their own URL with the type we chose, freed with the slide
+    s._url = URL.createObjectURL(new Blob([it.blob], {type: previewType(kind, it)}))
+    const sk = skeleton()
+    s.append(sk)
+    let el
+    if (kind === 'video' || kind === 'audio') {
+      el = document.createElement(kind)
+      el.controls = true
+      el.preload = 'metadata'
+      if (kind === 'video') el.playsInline = true
+      el.addEventListener('loadedmetadata', () => sk.remove(), {once: true})
+      if (kind === 'audio') {
+        const art = document.createElement('div')
+        art.className = 'audio-art'
+        art.innerHTML = ICONS.music
+        s.append(art)
+      }
+    } else {
+      el = document.createElement('iframe')
+      el.title = it.name
+      el.addEventListener('load', () => sk.remove(), {once: true})
+    }
+    el.addEventListener('error', failIn(s), {once: true})
+    el.src = s._url
+    s.append(el)
+    return s
+  }
+
+  // the new slide comes in from the side we're heading to; the old one leaves the other way
+  const EASE_IN = 'cubic-bezier(.2,.8,.2,1)'
+  function enter(el, dir) {
+    if (!animated()) return
+    const from = dir ? `translateX(${dir * 14}%)` : 'scale(0.98)'
+    el.animate([{transform: from, opacity: 0}, {transform: 'none', opacity: 1}], {duration: SLIDE_MS, easing: EASE_IN})
+  }
+  function leave(el, dir, fromX = 0) {
+    el.classList.add('leaving')
+    el.querySelectorAll('video, audio').forEach(m => m.pause())
+    const fromOpacity = Number(el.style.opacity || 1)
+    el.style.transform = el.style.opacity = ''
+    if (!animated() || !dir) return dropSlide(el)
+    const a = el.animate([
+      {transform: `translateX(${fromX}px)`, opacity: fromOpacity},
+      {transform: `translateX(calc(${fromX}px + ${-dir * 14}%))`, opacity: 0},
+    ], {duration: SLIDE_MS * 0.8, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards'})
+    a.finished.then(() => dropSlide(el), () => dropSlide(el))
+  }
+
+  function header(it, all) {
+    const name = $('#preview-name')
+    name.textContent = it.name
+    name.title = it.name
     $('#preview-meta').textContent = `${fmtSize(it.size)} · ${t('fromAt', {name: it.from, time: timeOf(it.at)})}`
-    $('#preview-pos').textContent = all.length > 1 ? `${i + 1} / ${all.length}` : ''
+    $('#preview-pos').textContent = all.length > 1 ? `${all.indexOf(it) + 1} / ${all.length}` : ''
     $('#preview-prev').hidden = $('#preview-next').hidden = all.length < 2
     const save = $('#preview-save')
     save.href = urlOf(it)
     save.download = it.name
     save.onclick = () => markSaved(it)
-
-    const kind = previewKind(it)
-    stage.dataset.kind = kind || 'none'
-    if (!kind) return message(t('noPreview'))
-    if (kind === 'pdf' && navigator.pdfViewerEnabled === false) return message(t('pdfNoViewer'))
-
-    const sk = document.createElement('div')
-    sk.className = 'skeleton preview-skeleton'
-    stage.append(sk)
-    const ready = () => sk.remove()
-    const fail = () => current === it && message(t('previewFailed'))
-
-    if (kind === 'text') {
-      let text = ''
-      try {
-        text = await it.blob.slice(0, TEXT_PREVIEW_BYTES).text()
-      } catch {
-        return fail()
-      }
-      if (current !== it) return
-      const pre = document.createElement('pre')
-      pre.textContent = it.size > TEXT_PREVIEW_BYTES ? `${text}\n${t('textCut')}` : text
-      stage.replaceChildren(pre)
-      return
-    }
-
-    previewUrl = URL.createObjectURL(new Blob([it.blob], {type: previewType(kind, it)}))
-    let el
-    if (kind === 'image') {
-      el = document.createElement('img')
-      el.alt = it.name
-      el.addEventListener('load', ready, {once: true})
-    } else if (kind === 'video' || kind === 'audio') {
-      el = document.createElement(kind)
-      el.controls = true
-      el.preload = 'metadata'
-      if (kind === 'video') el.playsInline = true
-      el.addEventListener('loadedmetadata', ready, {once: true})
-      if (kind === 'audio') {
-        const art = document.createElement('div')
-        art.className = 'audio-art'
-        art.innerHTML = ICONS.music
-        stage.append(art)
-      }
-    } else {
-      el = document.createElement('iframe')
-      el.title = it.name
-      el.addEventListener('load', ready, {once: true})
-    }
-    el.addEventListener('error', fail, {once: true})
-    el.src = previewUrl
-    stage.append(el)
   }
 
-  function step(dir) {
+  /** The thumbnail strip: built once per set of files, then only the highlight moves. */
+  function renderStrip(all) {
+    strip.hidden = all.length < 2
+    const key = strip.hidden ? '' : all.map(x => x.id).join(',')
+    if (key !== stripKey) {
+      stripKey = key
+      strip.replaceChildren(...(key ? all.map(it => {
+        const b = document.createElement('button')
+        b.type = 'button'
+        b.className = 'strip-item'
+        b.dataset.id = String(it.id)
+        b.title = it.name
+        b.setAttribute('aria-label', it.name)
+        b.append(thumb(it))
+        b.addEventListener('click', () => goTo(it))
+        return b
+      }) : []))
+    }
+    for (const b of strip.children) {
+      const on = current && b.dataset.id === String(current.id)
+      b.classList.toggle('active', !!on)
+      if (on) b.setAttribute('aria-current', 'true')
+      else b.removeAttribute('aria-current')
+    }
+    centreStrip()
+  }
+
+  function centreStrip() {
+    const b = strip.querySelector('.active')
+    if (!b || !pdlg.open) return
+    const left = b.offsetLeft - (strip.clientWidth - b.offsetWidth) / 2
+    strip.scrollTo({left, behavior: animated() ? 'smooth' : 'auto'})
+  }
+
+  /**
+   * Decode the next file in the direction we're going, so the next arrow press is instant.
+   * One file only, and not a huge one, so a phone never holds several big bitmaps at once.
+   */
+  function preloadNext(it, all, dir) {
+    const i = all.indexOf(it)
+    const n = all[(i + (dir || 1) + all.length) % all.length]
+    if (!n || n === it || previewKind(n) !== 'image' || n.thumbFailed || n.size > PRELOAD_MAX_BYTES) return
+    const im = new Image()
+    im.src = imageUrl(n)
+    im.decode().catch(() => {})
+  }
+
+  async function show(it, dir = 0, fromX = 0) {
+    const token = ++seq
+    current = it
+    const all = previewable()
+    header(it, all)
+    renderStrip(all)
+    if (!slide) {
+      // nothing on screen yet (just opened): a skeleton if the file isn't ready in a blink
+      clearTimeout(waitTimer)
+      waitTimer = setTimeout(() => {
+        if (token !== seq || slide || stage.querySelector('.preview-wait')) return
+        const sk = skeleton()
+        sk.classList.add('preview-wait')
+        stage.prepend(sk)
+      }, 120)
+    }
+    const next = await build(it)
+    if (token !== seq) return dropSlide(next) // another file was picked (or closed) meanwhile
+    clearTimeout(waitTimer)
+    stage.querySelector('.preview-wait')?.remove()
+    const old = slide
+    slide = next
+    stage.prepend(next) // under the arrows
+    if (old) leave(old, dir, fromX)
+    enter(next, old ? dir : 0)
+    preloadNext(it, all, dir)
+  }
+
+  function step(dir, fromX = 0) {
     const all = previewable()
     if (all.length < 2 || !current) return
     const i = all.indexOf(current)
-    show(all[(i + dir + all.length) % all.length])
+    show(all[(i + dir + all.length) % all.length], dir, fromX)
+  }
+
+  function goTo(it) {
+    if (it === current) return
+    const all = previewable()
+    show(it, all.indexOf(it) > all.indexOf(current) ? 1 : -1)
   }
 
   $('#preview-prev').addEventListener('click', () => step(-1))
@@ -408,17 +580,84 @@ export function createInbox({confirmBox, showDialog, onChange, toast}) {
     if (e.key === 'ArrowLeft') step(-1)
     else if (e.key === 'ArrowRight') step(1)
   })
+
+  // swipe left / right on touch screens (a mouse uses the arrows). While the page is pinch-
+  // zoomed, a sideways drag pans the photo instead: no swiping, and the stage hands panning
+  // back to the browser (CSS: .preview-stage.zoomed).
+  let drag = null
+  const zoomed = () => (window.visualViewport?.scale ?? 1) > 1.01
+  window.visualViewport?.addEventListener('resize', () => {
+    if (pdlg.open) stage.classList.toggle('zoomed', zoomed())
+  })
+
+  function snapBack() {
+    const el = slide
+    if (!el) return
+    const from = el.style.transform
+    el.style.transform = el.style.opacity = ''
+    if (from && animated()) el.animate([{transform: from}, {transform: 'none'}], {duration: 220, easing: EASE_IN})
+  }
+
+  stage.addEventListener('pointerdown', e => {
+    if (drag) {
+      // a second finger: that's a pinch, not a swipe
+      if (e.pointerId !== drag.id) {
+        drag = null
+        snapBack()
+      }
+      return
+    }
+    if (e.pointerType === 'mouse' || !slide || zoomed()) return
+    if (e.target.closest('.preview-nav, video, audio, iframe, pre') || previewable().length < 2) return
+    drag = {id: e.pointerId, x: e.clientX, y: e.clientY, at: e.timeStamp, dx: 0, live: false}
+  })
+  stage.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return
+    const dx = e.clientX - drag.x
+    if (!drag.live) {
+      if (Math.abs(dx) < 10) return
+      if (Math.abs(e.clientY - drag.y) > Math.abs(dx)) return void (drag = null) // scrolling
+      drag.live = true
+      try { stage.setPointerCapture(e.pointerId) } catch {}
+      // still sliding in from the last swipe: stop that, so the photo follows the finger now
+      slide.getAnimations().forEach(a => a.finish())
+    }
+    drag.dx = dx
+    slide.style.transform = `translateX(${dx}px)`
+    slide.style.opacity = String(1 - Math.min(0.4, Math.abs(dx) / (stage.clientWidth || 1)))
+  })
+  const endDrag = e => {
+    if (!drag || e.pointerId !== drag.id) return
+    const {dx, live, at} = drag
+    drag = null
+    if (!live || !slide) return
+    const flick = Math.abs(dx) / Math.max(1, e.timeStamp - at) > 0.45
+    if (e.type === 'pointerup' && (Math.abs(dx) > stage.clientWidth * 0.18 || (flick && Math.abs(dx) > 30))) {
+      step(dx < 0 ? 1 : -1, dx)
+      return
+    }
+    snapBack()
+  }
+  stage.addEventListener('pointerup', endDrag)
+  stage.addEventListener('pointercancel', endDrag)
+
   pdlg.addEventListener('close', () => {
+    seq++
     clearStage()
+    stage.classList.remove('zoomed')
     current = null
+    drag = null
+    stripKey = ''
+    strip.replaceChildren()
     if (dlg.open) render() // "Saved" may have changed
   })
 
   function openPreview(id) {
     const it = items.find(x => x.id === id)
     if (!it) return
-    show(it)
     if (!pdlg.open) showDialog(pdlg)
+    stage.classList.toggle('zoomed', zoomed())
+    show(it)
   }
 
   return {

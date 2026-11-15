@@ -103,7 +103,7 @@
 /* Standard properties (Firefox, Chrome 121+, Edge); when they're set, Chrome ignores the
    ::-webkit-scrollbar rules below, which remain for Safari and older Chromium. */
 @supports (scrollbar-color: auto) {
-  html, dialog, .inbox-list, .file-list, .tray, .panel, .chat-list, .preview-stage, textarea {
+  html, dialog, .inbox-list, .file-list, .tray, .panel, .chat-list, .preview-slide pre, .preview-strip, textarea {
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) transparent;
   }
@@ -1249,37 +1249,128 @@ textarea { resize: vertical; width: 100%; }
   font-size: 11px; font-weight: 600; line-height: 1;
 }
 
-/* preview */
-dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100dvh - 24px); }
-.preview { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
-.preview-head { display: flex; align-items: flex-start; gap: 10px; padding: 4px 4px 0 8px; }
-.preview-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.preview-title b { font-weight: 500; overflow-wrap: anywhere; }
+/* preview: a near-full-screen lightbox. The stage stays dark in both themes (photos read
+   best on dark), slides are stacked so one can slide out while the next slides in. */
+dialog.preview-dlg {
+  width: min(1240px, calc(100% - 32px)); height: calc(100dvh - 32px);
+  max-width: none; max-height: none; overflow: hidden; border-radius: 24px;
+}
+.preview { height: 100%; display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.preview-head { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 2px 0 10px; }
+.preview-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.preview-title b, .preview-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-title b { font-weight: 500; font-size: 15px; }
+.preview-meta { font-size: 12.5px; color: var(--muted); }
+.preview-pos {
+  flex-shrink: 0; padding: 4px 11px; border-radius: 999px;
+  font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line);
+}
+.preview-pos:empty { display: none; }
+.preview-save { flex-shrink: 0; gap: 6px; }
+.preview-save svg { width: 17px; height: 17px; stroke-width: 2.1; }
+
 .preview-stage {
-  position: relative; display: grid; place-items: center;
-  min-height: 220px; max-height: calc(100dvh - 190px); overflow: auto;
-  border-radius: 18px; background: rgba(5, 4, 30, 0.55);
+  position: relative; flex: 1; min-height: 0; overflow: hidden; isolation: isolate;
+  border-radius: 18px;
+  background: radial-gradient(120% 90% at 50% 38%, #1c1950, #0a0922 72%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  touch-action: pan-y pinch-zoom;
 }
-.preview-stage img, .preview-stage video { display: block; max-width: 100%; max-height: calc(100dvh - 190px); object-fit: contain; }
-.preview-stage iframe { width: 100%; height: calc(100dvh - 190px); border: 0; background: #fff; }
-.preview-stage audio { width: min(100% - 32px, 420px); margin: 0 16px 24px; }
-.preview-stage pre {
-  justify-self: stretch; align-self: start; margin: 0; padding: 16px;
+/* pinch-zoomed: sideways drags pan the page again instead of swiping */
+.preview-stage.zoomed { touch-action: auto; }
+.preview-slide {
+  position: absolute; inset: 0; padding: 14px;
+  display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; /* a definite cell, so max-height: 100% works */
+}
+.preview-slide.leaving { pointer-events: none; }
+.preview-slide img, .preview-slide video {
+  display: block; max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: 8px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  user-select: none; -webkit-user-drag: none;
+}
+.preview-slide[data-kind="pdf"], .preview-slide[data-kind="text"] { padding: 0; place-items: stretch; }
+.preview-slide iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+.preview-slide pre {
+  margin: 0; padding: 18px 22px; overflow: auto;
   white-space: pre-wrap; overflow-wrap: anywhere;
-  font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text);
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: #e8e5ff;
 }
-.preview-stage[data-kind="audio"] { align-content: center; gap: 16px; }
+.preview-slide[data-kind="audio"] { grid-template-rows: auto auto; align-content: center; gap: 22px; }
+.preview-slide audio { width: min(100% - 32px, 420px); }
 .audio-art {
-  width: 120px; height: 120px; margin-top: 24px; border-radius: 50%;
+  width: 120px; height: 120px; border-radius: 50%;
   display: grid; place-items: center; color: var(--sky);
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--sky) 30%, var(--surface-solid)), var(--surface-solid));
   box-shadow: 0 0 0 2px var(--sky), 0 0 40px color-mix(in srgb, var(--sky) 35%, transparent);
 }
 .audio-art svg { width: 54px; height: 54px; }
-.preview-msg { margin: 0; padding: 32px 24px; max-width: 360px; text-align: center; color: var(--muted); line-height: 1.5; }
-.preview-skeleton { position: absolute; inset: 16px; border-radius: 12px; }
-.preview-foot { display: flex; align-items: center; gap: 6px; }
-.preview-foot #preview-save { margin-left: auto; }
+.preview-msg { margin: 0; padding: 32px 24px; max-width: 360px; text-align: center; color: #b8b4dc; line-height: 1.5; }
+.preview-skeleton { position: absolute; inset: 28px; border-radius: 14px; opacity: 0.5; }
+
+/* arrows float on the stage's sides: they show on hover with a mouse, always on touch */
+.preview-nav {
+  position: absolute; top: 50%; z-index: 2;
+  width: 46px; height: 46px; margin-top: -23px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgba(12, 10, 40, 0.66); border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.preview-nav.prev { left: 14px; }
+.preview-nav.next { right: 14px; }
+.preview-nav svg { width: 22px; height: 22px; stroke-width: 2.2; }
+.preview-nav[hidden] { display: none; }
+.preview-stage:hover .preview-nav, .preview-nav:focus-visible { opacity: 1; }
+.preview-nav:hover { transform: scale(1.07); background: rgba(34, 30, 90, 0.85); }
+.preview-nav:active { transform: scale(0.94); }
+.preview-nav:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+@media (hover: none) { .preview-nav { opacity: 0.92; } }
+
+/* every previewable file as a thumbnail: tap to jump; the one on screen is lit */
+.preview-strip {
+  position: relative; flex-shrink: 0;
+  display: flex; gap: 8px; justify-content: safe center;
+  padding: 3px 3px 5px; overflow-x: auto; overflow-y: hidden;
+}
+.preview-strip[hidden] { display: none; }
+.strip-item {
+  position: relative; flex: 0 0 auto; width: 56px; height: 56px; padding: 0;
+  border: 0; border-radius: 12px; background: none; cursor: pointer;
+  opacity: 0.5; transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.strip-item:hover { opacity: 0.85; }
+.strip-item.active { opacity: 1; }
+.strip-item::after { content: ''; position: absolute; inset: 0; border-radius: inherit; box-shadow: inset 0 0 0 1px var(--line); }
+.strip-item.active::after { box-shadow: inset 0 0 0 2px var(--sky), 0 0 14px color-mix(in srgb, var(--sky) 45%, transparent); }
+.strip-item:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.strip-item .thumb {
+  width: 100%; height: 100%; border-radius: inherit; overflow: hidden;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--lav) 18%, transparent); color: var(--lav);
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+}
+.strip-item .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.strip-item .thumb svg { width: 20px; height: 20px; }
+.strip-item .thumb[data-kind="video"], .strip-item .thumb[data-kind="audio"] { color: var(--sky); background: color-mix(in srgb, var(--sky) 16%, transparent); }
+.strip-item .thumb[data-kind="pdf"] { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+
+/* phones: the viewer takes the whole screen, edge to edge */
+@media (max-width: 640px) {
+  dialog.preview-dlg { width: 100%; height: 100dvh; border: 0; border-radius: 0; }
+  .preview { gap: 8px; padding: 6px 0 calc(8px + env(safe-area-inset-bottom)); }
+  .preview-head { padding: 0 4px 0 14px; gap: 6px; }
+  .preview-save { padding: 0 11px; }
+  .preview-save span { display: none; }
+  .preview-stage { border-radius: 0; box-shadow: none; }
+  .preview-slide { padding: 0; }
+  .preview-slide img, .preview-slide video { border-radius: 0; box-shadow: none; }
+  .preview-nav { width: 40px; height: 40px; margin-top: -20px; }
+  .preview-nav.prev { left: 8px; }
+  .preview-nav.next { right: 8px; }
+  .preview-strip { padding: 2px 12px 2px; }
+  .strip-item { width: 48px; height: 48px; border-radius: 10px; }
+}
 
 /* scanner: explain the camera before the browser's permission prompt */
 .scan-ask { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 8px 4px; }
@@ -1387,7 +1478,6 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .inbox-list .file-actions { gap: 2px; }
   .inbox-list .file-actions .btn:not(.primary) { display: none; }
   .inbox-list .file-actions .btn { padding: 0 12px; }
-  .preview { padding: 10px; }
 }
 
 @media (max-width: 360px) {
