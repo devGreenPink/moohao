@@ -103,7 +103,7 @@
 /* Standard properties (Firefox, Chrome 121+, Edge); when they're set, Chrome ignores the
    ::-webkit-scrollbar rules below, which remain for Safari and older Chromium. */
 @supports (scrollbar-color: auto) {
-  html, dialog, .inbox, .file-list, .tray, .panel, .chat-list, .preview-stage, textarea {
+  html, dialog, .inbox-list, .file-list, .tray, .panel, .chat-list, .preview-stage, textarea {
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) transparent;
   }
@@ -1198,8 +1198,8 @@ textarea { resize: vertical; width: 100%; }
 .file-list .meta .risky-tag { display: block; margin-top: 2px; font-size: 11.5px; line-height: 1.35; color: var(--warn); }
 .file-list li.risky .thumb { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .inbox-note.warn { color: var(--peach); }
-.inbox { display: flex; flex-direction: column; gap: 14px; max-height: 56dvh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
-.inbox .file-list { max-height: none; overflow: visible; }
+.inbox-list { display: flex; flex-direction: column; gap: 14px; max-height: 56dvh; overflow: auto; margin: 0 -4px; padding: 0 4px; }
+.inbox-list .file-list { max-height: none; overflow: visible; }
 .inbox-group h4 {
   display: flex; align-items: center; gap: 8px; margin: 0 0 8px;
   font-size: 13px; font-weight: 500; color: var(--muted);
@@ -1354,10 +1354,10 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
   .node-badge { width: 20px; height: 20px; right: -5px; bottom: -3px; }
   .node-badge svg { width: 12px; height: 12px; }
   /* received file rows stay on one line: tapping the thumbnail opens the preview */
-  .inbox .file-list li { gap: 10px; padding: 6px; }
-  .inbox .file-actions { gap: 2px; }
-  .inbox .file-actions .btn:not(.primary) { display: none; }
-  .inbox .file-actions .btn { padding: 0 12px; }
+  .inbox-list .file-list li { gap: 10px; padding: 6px; }
+  .inbox-list .file-actions { gap: 2px; }
+  .inbox-list .file-actions .btn:not(.primary) { display: none; }
+  .inbox-list .file-actions .btn { padding: 0 12px; }
   .preview { padding: 10px; }
 }
 
