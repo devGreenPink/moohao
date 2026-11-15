@@ -1,6 +1,6 @@
 // System notifications, vibration and the app-icon badge.
 //
-// Notifications only work while Nearby is open somewhere (a background tab or a minimised
+// Notifications only work while MooHao is open somewhere (a background tab or a minimised
 // window is fine): without a push server nothing can wake a closed app. They are shown
 // only when the user isn't looking at the page, since the page has its own toasts.
 

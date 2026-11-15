@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Submit https://devgreenpink.github.io/nearby/sitemap.xml in Google Search Console. -->
+<!-- Submit https://devgreenpink.github.io/moohao/sitemap.xml in Google Search Console. -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://devgreenpink.github.io/nearby/</loc>
+    <loc>https://devgreenpink.github.io/moohao/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>

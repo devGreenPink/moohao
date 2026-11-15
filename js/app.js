@@ -2120,7 +2120,7 @@ $('#room-copy').addEventListener('click', async () => {
 // The phone's own share sheet (LINE, Messenger, …): the other person just taps the link.
 $('#room-share').addEventListener('click', async () => {
   try {
-    await navigator.share({title: 'Nearby', text: t('shareText'), url: roomUrl(state.code)})
+    await navigator.share({title: 'MooHao', text: t('shareText'), url: roomUrl(state.code)})
   } catch (err) {
     if (err?.name === 'AbortError') return // closed the share sheet
     if (await copyText(roomUrl(state.code))) toast(t('linkCopied'))

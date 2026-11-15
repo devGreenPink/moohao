@@ -1,9 +1,9 @@
-// Nearby service worker:
+// MooHao service worker:
 //  1. keeps a copy of the app so it opens instantly / offline (network first, cache fallback)
 //  2. receives files shared from other apps (Web Share Target, Android)
 //  3. turns streamed incoming files into normal downloads (/__dl/<id>/<name>)
 
-const VERSION = 'nearby-v2.17.1'
+const VERSION = 'moohao-v2.18.0'
 const SHELL_CACHE = `${VERSION}-shell`
 const SHARE_CACHE = 'nearby-share'
 
