@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Nearby",
   "short_name": "Nearby",
-  "description": "Share files and text between nearby devices, peer-to-peer.",
+  "description": "ส่งไฟล์ รูป และข้อความ ข้ามเครื่องผ่านเบราว์เซอร์ ไม่ต้องลงแอป · Share files between any devices, peer-to-peer.",
   "lang": "th",
   "start_url": "./",
   "scope": "./",

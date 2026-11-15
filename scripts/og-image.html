@@ -1,0 +1,124 @@
+<!doctype html>
+<!--
+  The link-preview card (Open Graph / X): 1200 × 630. Not part of the app.
+  Regenerate icons/og-image.jpg with the dev server running (npm run serve):
+    "C:\Program Files\Google\Chrome\Application\chrome.exe" --headless=new --hide-scrollbars ^
+      --window-size=1200,630 --virtual-time-budget=8000 ^
+      --screenshot=icons\og-image.jpg http://localhost:8080/scripts/og-image.html
+-->
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Nearby share card</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500;600&display=block">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: #0f1029; }
+  body { display: block; min-height: 0; font-family: 'Mitr', system-ui, sans-serif; color: #f4f1ff; }
+  .card {
+    position: relative; width: 1200px; height: 630px; overflow: hidden;
+    background:
+      radial-gradient(55% 70% at 78% 46%, #2e2a7a 0%, transparent 70%),
+      radial-gradient(40% 50% at 12% 10%, rgba(255, 143, 181, 0.16), transparent 70%),
+      linear-gradient(160deg, #15153a 0%, #0c0c26 100%);
+  }
+  canvas { position: absolute; inset: 0; }
+  /* soft planet rising at the bottom left */
+  .horizon {
+    position: absolute; left: -260px; bottom: -560px; width: 1100px; height: 700px; border-radius: 50%;
+    background: radial-gradient(50% 50% at 50% 30%, #3a2f86, #1b1850 70%);
+    box-shadow: 0 -2px 0 rgba(185, 162, 255, 0.35), 0 -30px 90px rgba(150, 130, 255, 0.25);
+  }
+
+  .copy { position: absolute; left: 72px; top: 64px; width: 600px; }
+  .brand { display: flex; align-items: center; gap: 18px; }
+  .brand img { width: 76px; height: 76px; }
+  .brand b { font-size: 46px; font-weight: 600; letter-spacing: 0.5px; }
+  h1 { margin: 40px 0 0; font-size: 70px; line-height: 1.18; font-weight: 600; }
+  h1 em { font-style: normal; color: #8fe6f2; }
+  .sub { margin: 22px 0 0; font-size: 27px; line-height: 1.45; color: #cfc8f5; font-weight: 400; }
+  .en { margin: 10px 0 0; font-size: 22px; color: #9e96cf; font-weight: 400; }
+  .chips { display: flex; gap: 12px; margin-top: 34px; }
+  .chips span {
+    padding: 9px 20px; border-radius: 999px; font-size: 22px; font-weight: 500;
+    color: #fff; background: rgba(185, 162, 255, 0.16); box-shadow: inset 0 0 0 1.5px rgba(185, 162, 255, 0.5);
+  }
+
+  /* a little radar on the right: you in the middle, friends on the rings */
+  .radar { position: absolute; left: 700px; top: 55px; width: 520px; height: 520px; }
+  .ring { position: absolute; border-radius: 50%; border: 2px dashed rgba(185, 162, 255, 0.32); }
+  .ring.r1 { inset: 140px; border-style: solid; border-color: rgba(143, 230, 242, 0.35); }
+  .ring.r2 { inset: 70px; }
+  .ring.r3 { inset: 0; border-color: rgba(185, 162, 255, 0.2); }
+  .me { position: absolute; left: 50%; top: 50%; width: 150px; height: 150px; margin: -75px 0 0 -75px; }
+  .me img { width: 100%; height: 100%; filter: drop-shadow(0 0 30px rgba(150, 130, 255, 0.55)); }
+  .mate {
+    position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%;
+    display: grid; place-items: center;
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--tint) 34%, #1b1a45), #1b1a45 75%);
+    box-shadow: 0 0 0 3px var(--tint), 0 0 34px color-mix(in srgb, var(--tint) 45%, transparent);
+  }
+  .mate .space-avatar { width: 66%; height: 66%; }
+  .url {
+    position: absolute; right: 56px; bottom: 40px;
+    font-size: 21px; color: #b9b2e6; letter-spacing: 0.3px;
+  }
+</style>
+</head>
+<body>
+<div class="card">
+  <canvas id="stars" width="1200" height="630"></canvas>
+  <div class="horizon"></div>
+
+  <div class="copy">
+    <div class="brand"><img src="../icons/icon.svg" alt=""><b>Nearby</b></div>
+    <h1>ส่งไฟล์ข้ามเครื่อง<br><em>ไม่ต้องลงแอป</em></h1>
+    <p class="sub">iPhone ↔ Android ↔ คอม ส่งตรงหากัน<br>ไม่อัปโหลดขึ้นเซิร์ฟเวอร์</p>
+    <p class="en">Share files between any devices, right in the browser</p>
+    <div class="chips"><span>ฟรี</span><span>ปลอดภัย</span><span>มีแชต</span></div>
+  </div>
+
+  <div class="radar" id="radar">
+    <div class="ring r3"></div><div class="ring r2"></div><div class="ring r1"></div>
+    <div class="me"><img src="../icons/icon.svg" alt=""></div>
+  </div>
+
+  <div class="url">devgreenpink.github.io/nearby</div>
+</div>
+
+<script type="module">
+  import {avatarSvg} from '../js/ui/avatars.js'
+
+  // stars: a fixed pattern (seeded), so the card is the same every time it's generated
+  let seed = 7
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+  const g = document.getElementById('stars').getContext('2d')
+  for (let i = 0; i < 170; i++) {
+    const x = rand() * 1200, y = rand() * 630, r = rand() * 1.5 + 0.3
+    g.fillStyle = `rgba(255, 255, 255, ${0.25 + rand() * 0.6})`
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill()
+  }
+  for (const [x, y, s] of [[640, 70, 9], [1150, 600, 7], [560, 560, 6], [60, 590, 8]]) {
+    g.fillStyle = '#ffeec2'
+    g.beginPath()
+    g.moveTo(x, y - s); g.quadraticCurveTo(x, y, x + s, y); g.quadraticCurveTo(x, y, x, y + s)
+    g.quadraticCurveTo(x, y, x - s, y); g.quadraticCurveTo(x, y, x, y - s); g.fill()
+  }
+
+  // friends on the rings around you
+  const radar = document.getElementById('radar')
+  const c = 260
+  const mates = [['rocket', 3, 190, -62], ['alien', 6, 190, 52], ['saturn', 1, 255, 152], ['comet', 4, 255, -150], ['rover', 2, 120, 205]]
+  for (const [id, color, dist, deg] of mates) {
+    const a = deg * Math.PI / 180
+    const x = c + Math.cos(a) * dist, y = c + Math.sin(a) * dist
+    const m = document.createElement('div')
+    m.className = 'mate'
+    m.dataset.color = String(color)
+    m.style.left = `${x}px`
+    m.style.top = `${y}px`
+    m.innerHTML = avatarSvg(id)
+    radar.append(m)
+  }
+</script>
+</body>
