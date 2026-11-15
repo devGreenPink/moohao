@@ -15,6 +15,7 @@ import {createPanel} from './ui/panel.js'
 import {createScanStatus} from './ui/status.js'
 import {createTransferList, fmtSize, fmtTime, fileExt, isRisky} from './ui/transfers.js'
 import {createInbox} from './ui/inbox.js'
+import {createChat} from './ui/chat.js'
 import {createSky} from './ui/sky.js'
 import {effectsOn, powerSetting, setPowerSetting, isLite, liteReason, onPowerChange} from './ui/effects.js'
 
@@ -51,6 +52,26 @@ function toast(text, ms = 2600) {
   el.textContent = text
   $('#toasts').append(el)
   setTimeout(() => el.remove(), ms)
+}
+
+/** A toast with one button (e.g. "View"). Returns the element so it can be updated. */
+function toastAction(text, label, onAction, ms = 5000) {
+  const el = document.createElement('div')
+  el.className = 'toast with-action'
+  const span = document.createElement('span')
+  span.textContent = text
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'link-btn'
+  btn.textContent = label
+  btn.addEventListener('click', () => {
+    el.remove()
+    onAction()
+  })
+  el.append(span, btn)
+  $('#toasts').append(el)
+  setTimeout(() => el.remove(), ms)
+  return el
 }
 
 /** Announce something to screen readers without showing it. */
@@ -202,6 +223,7 @@ const state = {
   retryTimer: 0,
   joinError: null,
   online: navigator.onLine,
+  chats: new Map(), // device id -> {messages, unread}; see "messages" below
 }
 
 const allSessions = () => [state.main, ...state.pairSessions.values()].filter(Boolean)
@@ -248,6 +270,8 @@ function describePeer(info, status, tier) {
   const sys = [info.os, info.browser].filter(Boolean).join(' ')
   const parts = [info.displayName, t(info.device) + (sys ? ` (${sys})` : ''), t(tier === 'paired' ? 'pairedBadge' : tier === 'known' ? 'tagKnown' : 'tagNew')]
   if (status?.text) parts.push(status.text)
+  const unread = state.chats.get(info.deviceId)?.unread
+  if (unread) parts.push(t('unreadLabel', {n: unread}))
   return parts.join(', ')
 }
 
@@ -263,7 +287,7 @@ const radar = createRadar($('#radar'), {
 
 const panel = createPanel($('#panel'), {
   onSendFiles: id => pickFilesFor(id),
-  onSendText: id => openCompose(id),
+  onSendText: id => openChat(id),
   onPair: id => pairWith(id),
   onUnpair: id => unpairPeer(id),
   onNickname: id => editNickname(id),
@@ -313,7 +337,7 @@ function refresh() {
 
   const peers = []
   for (const [id, p] of state.peers) {
-    if (!p.offline && p.info) peers.push({id, name: p.info.displayName, avatar: p.info.avatar, color: p.info.color})
+    if (!p.offline && p.info) peers.push({id, name: p.info.displayName, avatar: p.info.avatar, color: p.info.color, unread: unreadOf(id)})
   }
   scan.set({kind, count, mode: state.mode, code: state.code && displayCode(state.code, lang), message: error, peers})
   renderPanel(kind, error)
@@ -342,6 +366,7 @@ function renderPanel(kind = state.lastScanKind, error = null) {
       tier: tierOf(sel), history: historyLine(p.info.deviceId), offline: p.offline,
       hasTransfers: panelTransfers(sel).length > 0,
     })
+    renderChat()
   } else if (kind === 'error') {
     panel.render({kind: 'error', message: error ?? currentError()})
   } else if (kind === 'found') {
@@ -400,7 +425,9 @@ function renderMe() {
 
 function upsertNode(id) {
   const p = state.peers.get(id)
-  if (p) radar.upsert(id, p.info, {tier: tierOf(id), offline: p.offline})
+  if (!p) return
+  radar.upsert(id, p.info, {tier: tierOf(id), offline: p.offline})
+  radar.setUnread(id, unreadOf(id)) // a device that reconnects keeps its unread count
 }
 
 function linkPeer(id, key, session, raw) {
@@ -770,6 +797,7 @@ window.addEventListener('beforeunload', e => {
 
 function selectPeer(id) {
   radar.select(id)
+  if (id) markRead(id) // opening a device's panel shows its conversation
   refresh()
   renderTransfers()
   if (id && matchMedia('(max-width: 1080px)').matches) {
@@ -916,15 +944,23 @@ async function sendFiles(id, files) {
   }
 }
 
+/** Send a message; it shows up in the conversation right away and is marked if it fails. */
 async function sendText(id, text) {
   const session = sessionFor(id)
   if (!state.peers.has(id) || !text.trim() || !session) return
+  const m = {dir: 'out', text, at: Date.now(), pending: true}
+  pushMessage(id, m)
+  renderChat()
   try {
     await session.sendText(id, text)
-    toast(t('sentTo', {name: nameOf(id)}))
+    // (sent from elsewhere, e.g. pasted text: say so, since the conversation isn't on screen)
+    if (!chatVisible(id)) toast(t('sentTo', {name: nameOf(id)}))
   } catch {
+    m.failed = true
     toast(t('failed'))
   }
+  m.pending = false
+  renderChat()
 }
 
 function setPending(pending) {
@@ -1062,7 +1098,7 @@ async function chooseSink(files, total) {
 const FLOOD_RULES = {
   offer: {pending: 1, perMinute: 6},
   pair: {pending: 1, perMinute: 2},
-  text: {pending: 3, perMinute: 10},
+  text: {pending: 1000, perMinute: 30}, // messages don't open dialogs any more, only a toast
 }
 const FLOOD_MUTE_MS = 2 * 60_000
 const flood = new Map() // peerId -> {mutedUntil, told, offer|pair|text: {pending, times}}
@@ -1291,72 +1327,107 @@ function renderInboxButton() {
 }
 $('#btn-inbox').addEventListener('click', () => inbox.open())
 
-function linkFrom(text) {
-  const s = text.trim()
-  if (/\s/.test(s)) return null
-  try {
-    const url = new URL(s)
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null
-  } catch {
-    return null
-  }
+// ---------- messages: one chat thread per device ----------
+
+/**
+ * Threads are keyed by the other device's id, so a conversation survives that device
+ * reconnecting (it gets a new peer id). Kept in this page only, never saved.
+ * thread: {messages: [{dir: 'in' | 'out', text, at, pending?, failed?}], unread}
+ */
+const CHAT_KEEP = 200
+const chatKey = id => state.peers.get(id)?.info?.deviceId || id
+
+function thread(id) {
+  const key = chatKey(id)
+  let th = state.chats.get(key)
+  if (!th) state.chats.set(key, (th = {messages: [], unread: 0}))
+  return th
 }
 
-function showMessage(peerId, text) {
+function unreadOf(id) {
+  return state.chats.get(chatKey(id))?.unread || 0
+}
+
+function pushMessage(id, m) {
+  const th = thread(id)
+  th.messages.push(m)
+  if (th.messages.length > CHAT_KEEP) th.messages.shift()
+  return th
+}
+
+const chat = createChat({
+  list: $('#chat-list'),
+  empty: $('#chat-empty'),
+  form: $('#chat-form'),
+  input: $('#chat-input'),
+  onSend: text => radar.selected && sendText(radar.selected, text),
+  copyText,
+})
+
+/** Draw the thread of the device shown in the side panel. */
+function renderChat() {
+  const id = radar.selected
+  if (!id || !state.peers.has(id)) return
+  chat.render(chatKey(id), thread(id).messages)
+}
+
+/** Is this device's conversation on screen right now? */
+function chatVisible(id) {
+  if (radar.selected !== id || document.hidden) return false
+  const r = $('#chat-list').getBoundingClientRect()
+  return r.bottom > 0 && r.top < innerHeight
+}
+
+function setUnread(id, n) {
+  const th = thread(id)
+  if (th.unread === n) return
+  th.unread = n
+  for (const [pid, p] of state.peers) {
+    if (chatKey(pid) === chatKey(id)) radar.setUnread(pid, n)
+  }
+  refresh() // the status bar shows unread dots too
+}
+
+function markRead(id) {
+  if (id && state.peers.has(id)) setUnread(id, 0)
+}
+
+// Coming back to the page with the conversation open counts as reading it.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && radar.selected && chatVisible(radar.selected)) markRead(radar.selected)
+})
+
+const messageToasts = new Map() // peerId -> toast element, so a burst updates one toast
+
+function receiveText(peerId, text) {
+  // still rate-limited per device, but nothing piles up: no dialog to queue
   if (!admit(peerId, 'text')) return
+  release(peerId, 'text')
   const name = nameOf(peerId)
-  enqueue(async () => {
-    try {
-      await messageDialog(peerId, name, text)
-    } finally {
-      release(peerId, 'text')
-    }
-  })
-}
-
-async function messageDialog(peerId, name, text) {
-  $('#message-title').textContent = t('messageFrom', {name})
-  $('#message-body').textContent = text
-  const link = linkFrom(text)
-  const open = $('#message-open')
-  open.hidden = !link
-  if (link) open.href = link
-  else open.removeAttribute('href')
-  const copy = $('#message-copy')
-  copy.textContent = t('copy')
-  copy.onclick = async () => {
-    if (await copyText(text)) copy.textContent = t('copied')
-  }
+  pushMessage(peerId, {dir: 'in', text, at: Date.now()})
+  renderChat()
+  if (chatVisible(peerId)) return chime()
+  setUnread(peerId, unreadOf(peerId) + 1)
   chime()
   flagTitle()
   alertUser({title: t('messageFrom', {name}), body: text.slice(0, 140), tag: `msg-${peerId}`})
-  await showDialog($('#dlg-message'))
+  const preview = `${name}: ${text.replace(/\s+/g, ' ').slice(0, 70)}${text.length > 70 ? '…' : ''}`
+  const old = messageToasts.get(peerId)
+  if (old?.isConnected) {
+    old.querySelector('span').textContent = preview
+    return
+  }
+  messageToasts.set(peerId, toastAction(preview, t('view'), () => openChat(peerId), 6000))
 }
 
-let composePeer = null
-function openCompose(id, prefill = '') {
+/** Show a device's conversation and put the cursor in the reply box. */
+function openChat(id) {
   if (!state.peers.has(id)) return
-  composePeer = id
-  $('#compose-title').textContent = t('sendTextTo', {name: nameOf(id)})
-  const ta = $('#compose-text')
-  ta.value = prefill
-  $('#compose-send').disabled = !prefill.trim()
-  showDialog($('#dlg-compose')).then(v => {
-    if (v === 'send' && composePeer) sendText(composePeer, ta.value)
-    composePeer = null
-  })
-  setTimeout(() => ta.focus(), 50)
+  selectPeer(id)
+  renderChat()
+  chat.focus()
+  markRead(id)
 }
-// Nothing to send until something is typed.
-$('#compose-text').addEventListener('input', e => {
-  $('#compose-send').disabled = !e.target.value.trim()
-})
-$('#compose-text').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-    e.preventDefault()
-    if (e.target.value.trim()) $('#dlg-compose').close('send')
-  }
-})
 
 // ---------- mascot blinks ----------
 
@@ -1635,7 +1706,7 @@ function makeHandlers(key) {
     onOfferCancelled,
     onIncomingDone,
     onIncomingFailed,
-    onText: showMessage,
+    onText: receiveText,
     onPairRequest: (id, request, signal) => askPair(id, request, signal, self()),
     onPairConfirmed,
     onUnpair: onRemoteUnpair,

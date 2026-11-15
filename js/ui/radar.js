@@ -267,6 +267,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         <span class="node-avatar" aria-hidden="true"></span>
         <span class="node-badge" aria-hidden="true"></span>
         <span class="node-tag" aria-hidden="true"></span>
+        <span class="node-unread" aria-hidden="true"></span>
       </span>
       <span class="node-name"><span class="node-device" aria-hidden="true"></span><span class="node-label"></span></span>
       <span class="node-status" aria-hidden="true"></span>`
@@ -406,6 +407,15 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     get selected() { return selected },
     ids: () => [...nodes.keys()],
     focus: id => nodes.get(id)?.el.focus(),
+    /** Unread messages from a device: a little count bubble on its avatar. */
+    setUnread(id, n) {
+      const node = nodes.get(id)
+      if (!node || node.unread === n) return
+      node.unread = n
+      node.el.classList.toggle('has-unread', n > 0)
+      node.el.querySelector('.node-unread').textContent = n > 9 ? '9+' : n ? String(n) : ''
+      refreshLabel(id)
+    },
     setPicking: on => root.classList.toggle('is-picking', on),
   }
 }

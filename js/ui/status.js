@@ -41,7 +41,7 @@ export function createScanStatus(root, {onSelect, onUseRoom, onInvite} = {}) {
   action.addEventListener('click', () => (action.dataset.act === 'invite' ? onInvite?.() : onUseRoom?.()))
 
   function renderCrew(kind, peers) {
-    const key = kind === 'found' ? peers.map(p => `${p.id}:${p.avatar}:${p.color}:${p.name}`).join('|') : kind
+    const key = kind === 'found' ? peers.map(p => `${p.id}:${p.avatar}:${p.color}:${p.name}:${p.unread || 0}`).join('|') : kind
     if (key === crewKey) return
     crewKey = key
     if (kind === 'error') return crew.replaceChildren()
@@ -62,7 +62,13 @@ export function createScanStatus(root, {onSelect, onUseRoom, onInvite} = {}) {
       b.dataset.color = String(p.color)
       b.innerHTML = avatarSvg(p.avatar)
       b.title = p.name
-      b.setAttribute('aria-label', p.name)
+      b.setAttribute('aria-label', p.unread ? `${p.name}, ${t('unreadLabel', {n: p.unread})}` : p.name)
+      if (p.unread) {
+        const dot = document.createElement('span')
+        dot.className = 'crew-unread'
+        dot.textContent = p.unread > 9 ? '9+' : String(p.unread)
+        b.append(dot)
+      }
       b.addEventListener('click', () => onSelect?.(p.id))
       return b
     })

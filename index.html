@@ -141,6 +141,19 @@
             <p class="panel-hint" data-i18n="dropHint"></p>
           </section>
 
+          <!-- conversation with this device (kept in this page only) -->
+          <section class="panel-sec chat-sec" id="panel-chat">
+            <h4 data-i18n="secChat"></h4>
+            <ol class="chat-list" id="chat-list" aria-live="polite"></ol>
+            <p class="muted small chat-empty" id="chat-empty" data-i18n="chatEmpty"></p>
+            <form class="chat-form" id="chat-form">
+              <textarea id="chat-input" rows="1" maxlength="10000" enterkeyhint="send" data-i18n-placeholder="chatPlaceholder" data-i18n-title="chatPlaceholder"></textarea>
+              <button class="btn primary chat-send" type="submit" data-i18n-title="send">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-6 16-3-7-7-1Z"/><path d="m11 13 9-9"/></svg>
+              </button>
+            </form>
+          </section>
+
           <section class="panel-sec" id="panel-xfers-sec" hidden>
             <h4>
               <span data-i18n="secTransfers"></span>
@@ -473,30 +486,6 @@
     </form>
   </dialog>
 
-  <!-- Compose text -->
-  <dialog id="dlg-compose">
-    <form method="dialog" class="sheet">
-      <h3 id="compose-title"></h3>
-      <textarea id="compose-text" rows="5" data-i18n-placeholder="textPlaceholder"></textarea>
-      <div class="row end">
-        <button class="btn ghost" value="cancel" data-i18n="cancel"></button>
-        <button class="btn primary" value="send" id="compose-send" data-i18n="send"></button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- Incoming text -->
-  <dialog id="dlg-message">
-    <form method="dialog" class="sheet">
-      <h3 id="message-title"></h3>
-      <div class="message" id="message-body"></div>
-      <div class="row end">
-        <button class="btn ghost" value="close" data-i18n="close"></button>
-        <a class="btn" id="message-open" target="_blank" rel="noopener noreferrer" hidden data-i18n="open"></a>
-        <button type="button" class="btn primary" id="message-copy" data-i18n="copy"></button>
-      </div>
-    </form>
-  </dialog>
 
   <script type="module" src="js/app.js"></script>
 </body>

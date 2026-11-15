@@ -103,7 +103,7 @@
 /* Standard properties (Firefox, Chrome 121+, Edge); when they're set, Chrome ignores the
    ::-webkit-scrollbar rules below, which remain for Safari and older Chromium. */
 @supports (scrollbar-color: auto) {
-  html, dialog, .inbox, .file-list, .tray, .panel, .message, .preview-stage, textarea {
+  html, dialog, .inbox, .file-list, .tray, .panel, .chat-list, .preview-stage, textarea {
     scrollbar-width: thin;
     scrollbar-color: var(--scroll-thumb) transparent;
   }
@@ -968,6 +968,72 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width:
   box-shadow: var(--shadow); font-size: 14px;
   animation: toast-in 0.25s ease;
 }
+/* a toast with a button ("View"): clickable, the text truncated to one line */
+.toast.with-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; max-width: min(460px, calc(100vw - 32px)); }
+.toast.with-action span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toast.with-action .link-btn { flex-shrink: 0; font-size: 13.5px; padding: 6px 10px; border-radius: 10px; background: color-mix(in srgb, var(--sky) 14%, transparent); }
+
+/* ---------- chat (side panel) ---------- */
+.chat-list {
+  list-style: none; margin: 0; padding: 2px 2px 4px;
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 240px; overflow-y: auto; overscroll-behavior: contain;
+}
+.chat-list:empty { display: none; }
+.chat-empty { margin: 0; }
+.msg { display: flex; }
+.msg-out { justify-content: flex-end; }
+.msg-bubble {
+  max-width: 84%;
+  padding: 7px 10px 5px 12px; border-radius: 16px 16px 16px 6px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.msg-out .msg-bubble {
+  border-radius: 16px 16px 6px 16px;
+  background: color-mix(in srgb, var(--lav) 22%, transparent);
+  border-color: color-mix(in srgb, var(--lav) 40%, transparent);
+}
+.msg-text { margin: 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg-text a { color: var(--sky); text-decoration: underline; text-underline-offset: 2px; }
+.msg-meta { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--muted); }
+.msg.pending .msg-bubble { opacity: 0.65; }
+.msg.failed .msg-bubble { border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+.msg.failed .msg-meta { color: var(--warn); }
+.msg-copy {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
+  display: inline-grid; place-items: center; cursor: pointer;
+  background: none; color: var(--muted); opacity: 0.6;
+}
+.msg-copy svg { width: 14px; height: 14px; }
+.msg-copy:hover, .msg-copy:focus-visible { opacity: 1; color: var(--text); }
+.chat-form { display: flex; align-items: flex-end; gap: 8px; }
+.chat-form textarea {
+  flex: 1; min-width: 0; resize: none; min-height: 40px; max-height: 110px;
+  padding: 9px 12px; border-radius: 14px; line-height: 1.4;
+}
+.chat-send { width: 40px; height: 40px; padding: 0; flex-shrink: 0; border-radius: 12px; }
+.chat-send svg { width: 18px; height: 18px; }
+
+/* unread messages: a count bubble on the device's avatar */
+.node-unread {
+  position: absolute; right: -6px; top: -4px; z-index: 2;
+  min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px;
+  display: none; place-items: center;
+  background: var(--peach); color: #2a0f1c;
+  font-size: 11px; font-weight: 600; line-height: 1;
+  box-shadow: 0 0 0 2px var(--surface-solid);
+}
+.node.has-unread .node-unread { display: grid; animation: unread-in 0.35s cubic-bezier(.2,1.6,.4,1); }
+@keyframes unread-in { from { transform: scale(0.3); } }
+.crew-mate { position: relative; }
+.crew-unread {
+  position: absolute; right: -5px; top: -5px;
+  min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--peach); color: #2a0f1c;
+  font-size: 10px; font-weight: 600; line-height: 1;
+  box-shadow: 0 0 0 2px var(--surface-solid);
+}
 @keyframes toast-in { from { transform: translateY(10px); opacity: 0; } }
 
 /* ---------- dialogs ---------- */
@@ -1216,12 +1282,6 @@ dialog.preview-dlg { width: min(860px, calc(100% - 24px)); max-height: calc(100d
 .booting #hero-sub:empty { --sk-w: 16em; }
 .booting #mode-label:empty { --sk-w: 6em; }
 .booting #me-name:empty { --sk-w: 7em; }
-
-.message {
-  padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line);
-  white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 46dvh; overflow: auto;
-}
 
 /* ---------- responsive ---------- */
 /* Desktop: the whole app fits on one screen, no scrolling. The page is exactly one screen
