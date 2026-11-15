@@ -54,6 +54,7 @@ export function createChat({list, empty, form, input, typingEl, onSend, onTyping
   // "is typing" for the other side: on while there's text and keys keep coming, off after
   // a few quiet seconds, on send, on leaving the box, or when switching conversation
   let typingOn = false
+  let shownTyping = ''
   let typingSentAt = 0
   let idleTimer = 0
   function typing(on) {
@@ -170,6 +171,9 @@ export function createChat({list, empty, form, input, typingEl, onSend, onTyping
     },
     /** Show "<name> is typing…" under the conversation, or hide it (null). */
     showTyping(label) {
+      label = label || ''
+      if (label === shownTyping) return
+      shownTyping = label
       typingEl.hidden = !label
       typingEl.querySelector('.who').textContent = label || ''
       if (label) {

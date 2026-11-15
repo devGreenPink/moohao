@@ -268,10 +268,10 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
         <span class="node-badge" aria-hidden="true"></span>
         <span class="node-tag" aria-hidden="true"></span>
         <span class="node-unread" aria-hidden="true"></span>
+        <span class="node-typing dots" aria-hidden="true"><i></i><i></i><i></i></span>
       </span>
       <span class="node-name"><span class="node-device" aria-hidden="true"></span><span class="node-label"></span></span>
-      <span class="node-status" aria-hidden="true"></span>
-      <span class="node-typing" aria-hidden="true"><i></i><i></i><i></i></span>`
+      <span class="node-status" aria-hidden="true"></span>`
 
     const beam = document.createElement('div')
     beam.className = 'beam'
@@ -408,7 +408,7 @@ export function createRadar(root, {onActivate, onDropFiles, describe}) {
     get selected() { return selected },
     ids: () => [...nodes.keys()],
     focus: id => nodes.get(id)?.el.focus(),
-    /** A device is typing a message to you: three bouncing dots under its name. */
+    /** A device is typing a message to you: a speech bubble with three dots on its avatar. */
     setTyping(id, on) {
       const node = nodes.get(id)
       if (!node || !!node.typing === on) return

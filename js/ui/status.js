@@ -48,7 +48,7 @@ export function createScanStatus(root, {onSelect, onUseRoom, onInvite} = {}) {
     if (kind !== 'found') {
       // nobody yet: three soft dots, "listening"
       const dots = document.createElement('span')
-      dots.className = 'listen'
+      dots.className = 'dots listen'
       dots.setAttribute('aria-hidden', 'true')
       dots.innerHTML = '<i></i><i></i><i></i>'
       crew.replaceChildren(dots)

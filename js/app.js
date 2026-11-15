@@ -468,6 +468,7 @@ function unlinkPeer(id, key) {
   if (activeWith(id).length) {
     // A transfer is waiting for this device to reconnect: keep it on the radar, dimmed.
     p.offline = true
+    receiveTyping(id, false) // gone: it can't be typing to us
     upsertNode(id)
     refresh()
     return
@@ -481,6 +482,7 @@ function removePeerNow(id) {
   clearTimeout(p.clearTimer)
   clearTimeout(typingFrom.get(id))
   typingFrom.delete(id)
+  typingSeen.delete(id)
   if (typingTo === id) typingTo = null
   state.peers.delete(id)
   flood.delete(id)
@@ -1396,7 +1398,9 @@ function renderChat() {
 
 /** How long "typing" stays up without a refresh from the other side (they resend every ~3 s). */
 const TYPING_SHOW_MS = 6000
+const TYPING_MIN_GAP_MS = 1000 // a well-behaved sender repeats "typing" every ~3 s: ignore floods
 const typingFrom = new Map() // peerId -> timer that clears their "typing"
+const typingSeen = new Map() // peerId -> when we last accepted a "typing" signal
 let typingTo = null // the device we last told we're typing to
 
 /** We started / stopped typing in the reply box: tell only the device we're talking to. */
@@ -1408,11 +1412,22 @@ function sendTyping(on) {
 }
 
 function receiveTyping(peerId, on) {
-  clearTimeout(typingFrom.get(peerId))
-  if (on && state.peers.has(peerId)) {
+  const was = typingFrom.has(peerId)
+  if (on) {
+    const p = state.peers.get(peerId)
+    if (!p || p.offline) return
+    const now = Date.now()
+    if (now - (typingSeen.get(peerId) || 0) < TYPING_MIN_GAP_MS) return
+    typingSeen.set(peerId, now)
+    clearTimeout(typingFrom.get(peerId))
     typingFrom.set(peerId, setTimeout(() => receiveTyping(peerId, false), TYPING_SHOW_MS))
-  } else typingFrom.delete(peerId)
-  radar.setTyping(peerId, typingFrom.has(peerId))
+  } else {
+    if (!was) return
+    clearTimeout(typingFrom.get(peerId))
+    typingFrom.delete(peerId)
+  }
+  if (was === typingFrom.has(peerId)) return // still typing: only the timer moved
+  radar.setTyping(peerId, !was)
   renderTyping()
 }
 
